@@ -117,7 +117,7 @@ const performAISynonymChecking = async () => {
     } else if (Array.isArray(studentAnswers)) {
       // Array format
       studentAnswers.forEach((answer, index) => {
-        const questionNum = index + 1;
+        const questionNum = answer?.questionNumber || index + 1;
         const correctAnswer = correctAnswersMap.get(questionNum);
         const studentAnswer = getAnswerValue(answer);
 
@@ -365,9 +365,9 @@ watch(() => props.modelValue, (isOpen) => {
                           </div>
                         </div>
 
-                        <!-- AI Explanation (if available and quiz is not active) -->
+                        <!-- AI Explanation (if available) -->
                         <div
-                          v-if="getAIComparison(getQuestionNumber(questionKey)) && !isQuizActive"
+                          v-if="getAIComparison(getQuestionNumber(questionKey))"
                           class="text-caption text-medium-emphasis mt-1 ml-2"
                         >
                           <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
@@ -405,17 +405,17 @@ watch(() => props.modelValue, (isOpen) => {
                         color="info"
                         size="32"
                       >
-                        <span class="text-white text-caption font-weight-bold">{{ index + 1 }}</span>
+                        <span class="text-white text-caption font-weight-bold">{{ answer?.questionNumber || index + 1 }}</span>
                       </v-avatar>
                     </template>
 
                     <v-list-item-title>
                       <div class="d-flex flex-column">
                         <div class="d-flex align-center justify-space-between mb-2">
-                          <span class="text-body-1">Question {{ index + 1 }}</span>
+                          <span class="text-body-1">Question {{ answer?.questionNumber || index + 1 }}</span>
                           <div class="d-flex gap-2">
                             <v-chip
-                              :color="isAnswerCorrectLocal(getAnswerValue(answer), index + 1) ? 'success' : 'error'"
+                              :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1) ? 'success' : 'error'"
                               size="small"
                               variant="outlined"
                             >
@@ -427,25 +427,25 @@ watch(() => props.modelValue, (isOpen) => {
                               size="small"
                               variant="tonal"
                             >
-                              Correct: {{ getCorrectAnswer(index + 1) }}
+                              Correct: {{ getCorrectAnswer(answer?.questionNumber || index + 1) }}
                             </v-chip>
                           </div>
                         </div>
 
-                        <!-- AI Explanation (if available and quiz is not active) -->
+                        <!-- AI Explanation (if available) -->
                         <div
-                          v-if="getAIComparison(index + 1) && !isQuizActive"
+                          v-if="getAIComparison(answer?.questionNumber || index + 1)"
                           class="text-caption text-medium-emphasis mt-1 ml-2"
                         >
                           <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
-                          {{ getAIComparison(index + 1)?.explanation }}
+                          {{ getAIComparison(answer?.questionNumber || index + 1)?.explanation }}
                           <v-chip
-                            v-if="getAIComparison(index + 1)?.confidence !== undefined"
+                            v-if="getAIComparison(answer?.questionNumber || index + 1)?.confidence !== undefined"
                             size="x-small"
                             variant="text"
                             class="ml-2"
                           >
-                            Confidence: {{ Math.round((getAIComparison(index + 1)?.confidence || 0) * 100) }}%
+                            Confidence: {{ Math.round((getAIComparison(answer?.questionNumber || index + 1)?.confidence || 0) * 100) }}%
                           </v-chip>
                         </div>
                       </div>
@@ -453,8 +453,8 @@ watch(() => props.modelValue, (isOpen) => {
 
                     <template #append>
                       <v-icon
-                        :color="isAnswerCorrectLocal(getAnswerValue(answer), index + 1) ? 'success' : 'error'"
-                        :icon="isAnswerCorrectLocal(getAnswerValue(answer), index + 1) ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1) ? 'success' : 'error'"
+                        :icon="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1) ? 'mdi-check-circle' : 'mdi-close-circle'"
                       />
                     </template>
                   </v-list-item>

@@ -19,9 +19,9 @@ const { userName, loading } = storeToRefs(authStore);
 // Tab folder visibility control
 const showTabFolder = ref(true);
 
-// Check if user is a teacher (role ID 3 - Organization Leader)
+// Check if user is a teacher (role ID 2)
 const isTeacher = computed(() => {
-  return authStore.userData?.role_id === 3;
+  return authStore.userData?.role_id === 2;
 });
 
 const handleLogout = async () => {

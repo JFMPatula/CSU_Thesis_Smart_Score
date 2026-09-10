@@ -83,11 +83,10 @@ export function getUserDisplayName(userData: {
  */
 export function getRoleColor(roleId: number | null | undefined): string {
   if (!roleId) return 'grey'
-  // You can customize colors based on role ID or title
   switch (roleId) {
     case 1: return 'red' // Admin
-    case 2: return 'blue' // Student
-    case 3: return 'green' // Organization Leader
+    case 2: return 'blue' // Teacher
+    case 4: return 'green' // Student
     default: return 'grey'
   }
 }
@@ -112,8 +111,8 @@ export function getRoleTitle(roleId: number | null | undefined, roles: Array<{ i
 export function getRoleText(roleId: number | null | undefined): string {
   switch (roleId) {
     case 1: return 'Admin'
-    case 2: return 'Student'
-    case 3: return 'Organization Leader'
+    case 2: return 'Teacher'
+    case 4: return 'Student'
     default: return 'Unknown'
   }
 }

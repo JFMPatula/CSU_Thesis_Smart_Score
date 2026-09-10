@@ -1,5 +1,8 @@
 import { Groq } from 'groq-sdk';
 
+// Free-tier text model on this Groq key.
+const TEXT_MODEL = 'openai/gpt-oss-120b';
+
 interface SynonymCheckResult {
   areEquivalent: boolean;
   confidence: number;
@@ -52,12 +55,15 @@ export class GroqSynonymService {
             content: prompt
           }
         ],
-        model: 'llama-3.3-70b-versatile', // Fast and accurate model for text analysis
+        model: TEXT_MODEL, // Fast and accurate model for text analysis
         temperature: 0.2, // Low temperature for consistent, accurate results
         max_completion_tokens: 512,
         top_p: 1,
         stream: false,
-        stop: null
+        stop: null,
+        response_format: {
+          type: 'json_object'
+        } as any
       });
 
       const content = chatCompletion.choices[0]?.message?.content || '';
@@ -97,12 +103,15 @@ export class GroqSynonymService {
             content: prompt
           }
         ],
-        model: 'llama-3.3-70b-versatile',
+        model: TEXT_MODEL,
         temperature: 0.2,
         max_completion_tokens: 2048,
         top_p: 1,
         stream: false,
-        stop: null
+        stop: null,
+        response_format: {
+          type: 'json_object'
+        } as any
       });
 
       const content = chatCompletion.choices[0]?.message?.content || '';

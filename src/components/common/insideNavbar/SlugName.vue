@@ -13,7 +13,7 @@ const userEmail = computed(() => authStore.userEmail)
 const displayName = computed(() => createDisplaySlugName(userEmail.value))
 const userInitials = computed(() => getEmailInitials(userEmail.value))
 const userRole = computed(() => authStore.userRole)
-const userRoleText = computed(() => getRoleText(userRole.value))
+const userRoleText = computed(() => authStore.userData?.role_title || getRoleText(userRole.value))
 const userRoleColor = computed(() => getRoleColor(userRole.value))
 
 // Handle logout

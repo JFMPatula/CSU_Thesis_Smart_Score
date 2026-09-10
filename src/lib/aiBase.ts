@@ -1,5 +1,9 @@
 import { Groq } from 'groq-sdk';
 
+// Free-tier text model on this Groq key. No vision model is free on this
+// account, so images are OCR'd locally (Tesseract) then structured to JSON here.
+const TEXT_MODEL = 'openai/gpt-oss-120b';
+
 interface AnswerKeyData {
   questions: Array<{
     question_number: number;
@@ -18,7 +22,8 @@ interface AnswerKeyData {
 }
 
 /**
- * Groq AI service for processing images and extracting structured answer keys using vision models
+ * Groq AI service for OCR-ing images locally and extracting structured answer keys
+ * using the free-tier text model.
  */
 export class GroqAIService {
   private groq: Groq;
@@ -34,22 +39,77 @@ export class GroqAIService {
   }
 
   /**
-   * Process image with vision model only (no OCR)
+   * Process an image-only upload. OCRs the image locally with Tesseract,
+   * then structures the text into answer-key JSON with the free text model.
    * @param imageBase64 - Base64 encoded image
    * @returns Structured answer key data
    */
   async processImageOnly(imageBase64: string): Promise<AnswerKeyData> {
-    const prompt = this.createVisionOnlyPrompt();
-
-  // The UI allows multiple formats; don't hardcode JPEG.
-  const mimeType = this.detectMimeTypeFromBase64(imageBase64) ?? 'image/jpeg';
-
-    console.log('🚀 Starting AI Vision Analysis:', {
+    console.log('🚀 Starting image processing:', {
       imageBase64Length: imageBase64.length,
       imageSize: `~${(imageBase64.length * 0.75 / 1024).toFixed(2)} KB`,
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      promptLength: prompt.length,
-      promptContent: prompt
+      stage: 'local OCR (Tesseract)'
+    });
+
+    const ocrText = await this.extractOcrTextFromBase64(imageBase64);
+    if (!ocrText.trim().length) {
+      console.warn('⚠️ OCR returned no text; unable to extract an answer key.');
+      return {
+        questions: [],
+        metadata: { total_questions: 0, subject: 'Unknown', difficulty: 'Unknown' }
+      };
+    }
+
+    return this.processTextOnly(ocrText);
+  }
+
+  /**
+   * Process OCR text along with the image for context. OCR text is used
+   * directly when present; otherwise the image is OCR'd locally first.
+   * @param ocrText - Raw text extracted from OCR
+   * @param imageBase64 - Base64 encoded image (used when ocrText is empty)
+   * @returns Structured answer key data
+   */
+  async processWithVision(ocrText: string, imageBase64: string): Promise<AnswerKeyData> {
+    let text = (ocrText || '').trim();
+    if (!text.length && imageBase64) {
+      text = (await this.extractOcrTextFromBase64(imageBase64)).trim();
+    }
+    if (!text.length) {
+      console.warn('⚠️ No OCR text available for processing.');
+      return {
+        questions: [],
+        metadata: { total_questions: 0, subject: 'Unknown', difficulty: 'Unknown' }
+      };
+    }
+    return this.processTextOnly(text);
+  }
+
+  /**
+   * Process a student answer-sheet image. OCRs the image locally, then sends the
+   * custom extraction prompt together with the OCR text to the free text model.
+   * Returns the raw parsed JSON (preserves the student "answers" schema).
+   * @param imageBase64 - Base64 encoded answer-sheet image
+   * @param extractionPrompt - Student-specific extraction prompt
+   * @returns Raw parsed JSON object
+   */
+  async processStudentAnswerSheet(imageBase64: string, extractionPrompt: string): Promise<any> {
+    console.log('📄 Starting student answer sheet processing:', {
+      imageBase64Length: imageBase64.length,
+      imageSize: `~${(imageBase64.length * 0.75 / 1024).toFixed(2)} KB`,
+      stage: 'local OCR (Tesseract)'
+    });
+
+    const ocrText = await this.extractOcrTextFromBase64(imageBase64);
+    if (!ocrText.trim().length) {
+      console.warn('⚠️ OCR returned no text from the answer sheet.');
+      return { answers: [], metadata: { totalQuestions: 0, processedQuestions: 0 } };
+    }
+
+    console.log('🔤 Starting Student OCR Analysis:', {
+      textLength: ocrText.length,
+      model: TEXT_MODEL,
+      textPreview: ocrText.substring(0, 300) + (ocrText.length > 300 ? '...' : '')
     });
 
     try {
@@ -61,120 +121,34 @@ export class GroqAIService {
           },
           {
             role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: prompt
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mimeType};base64,${imageBase64}`
-                }
-              }
-            ]
+            content: `${extractionPrompt}\n\n---\nOCR Extracted Text from the image:\n${ocrText}`
           }
         ],
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct', // Use vision model for image processing
-        temperature: GroqAIService.DEFAULT_TEMPERATURE, // Lower temperature for more consistent results
-        max_completion_tokens: 2048,
-        top_p: 1,
-        stream: false,
-        stop: null,
-
-        // If supported by the provider/model, this nudges the model into valid JSON.
-        // It's safe to include—unknown fields are typically ignored.
-        response_format: {
-          type: 'json_object'
-        } as any
-      });
-
-      const content = chatCompletion.choices[0]?.message?.content || '';
-
-      // Log the raw AI response for comprehensive content analysis
-      console.log('🤖 Complete AI Vision Response:', {
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-        contentLength: content.length,
-        rawContent: content,
-        usage: chatCompletion.usage,
-        finishReason: chatCompletion.choices[0]?.finish_reason,
-        timestamp: new Date().toISOString()
-      });
-
-      const parsed = this.parseResponse(content);
-
-      // If the vision-only extraction returns 0 questions on handwritten sheets,
-      // try an OCR-assisted pass. This is common with faint pencil/pen strokes.
-      if (!parsed.questions?.length) {
-        console.warn('⚠️ Vision-only returned no questions; attempting OCR-assisted fallback...');
-        const ocrText = await this.extractOcrTextFromBase64(imageBase64);
-        if (ocrText.trim().length) {
-          return await this.processWithVision(ocrText, imageBase64);
-        }
-      }
-
-      return parsed;
-    } catch (error) {
-      console.error('Error with vision-only processing:', error);
-      throw new Error(`Vision processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  /**
-   * Process OCR text with vision model (meta-llama/llama-4-scout-17b-16e-instruct)
-   * @param ocrText - Raw text extracted from OCR
-   * @param imageBase64 - Base64 encoded image for context
-   * @returns Structured answer key data
-   */
-  async processWithVision(ocrText: string, imageBase64: string): Promise<AnswerKeyData> {
-    const prompt = this.createVisionPrompt(ocrText);
-
-  const mimeType = this.detectMimeTypeFromBase64(imageBase64) ?? 'image/jpeg';
-
-    try {
-      const chatCompletion = await this.groq.chat.completions.create({
-        messages: [
-          {
-            role: 'system',
-            content: this.createJsonOnlySystemPrompt()
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: prompt
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mimeType};base64,${imageBase64}`
-                }
-              }
-            ]
-          }
-        ],
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct', // Updated vision model for OCR
+        model: TEXT_MODEL,
         temperature: GroqAIService.DEFAULT_TEMPERATURE,
-        max_completion_tokens: 2048,
-        top_p: 1,
-        stream: false,
-        stop: null,
+        max_completion_tokens: 4000,
+        top_p: 0.95,
         response_format: {
           type: 'json_object'
         } as any
       });
 
-      const content = chatCompletion.choices[0]?.message?.content || '';
-      return this.parseResponse(content);
+      const response = chatCompletion.choices[0]?.message?.content || '';
+      console.log('🤖 Raw Student OCR Analysis Response:', {
+        model: TEXT_MODEL,
+        responseLength: response.length,
+        rawResponse: response
+      });
+
+      return this.parseRawJson(response);
     } catch (error) {
-      console.error('Error with vision model:', error);
-      throw new Error(`Vision processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Error with student answer processing:', error);
+      throw new Error(`Answer processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   /**
-   * Process OCR text only (without image) using text model
+   * Process OCR text only (without image) using the free text model
    * @param ocrText - OCR extracted text from PDF/image
    * @returns Structured answer key data
    */
@@ -183,7 +157,7 @@ export class GroqAIService {
 
     console.log('🔤 Starting OCR Text Analysis:', {
       textLength: ocrText.length,
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      model: TEXT_MODEL,
       promptLength: prompt.length,
       textPreview: ocrText.substring(0, 300) + (ocrText.length > 300 ? '...' : '')
     });
@@ -200,9 +174,9 @@ export class GroqAIService {
             content: prompt
           }
         ],
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        model: TEXT_MODEL,
         temperature: GroqAIService.DEFAULT_TEMPERATURE,
-        max_tokens: 4000,
+        max_completion_tokens: 4000,
         top_p: 0.95,
         response_format: {
           type: 'json_object'
@@ -211,6 +185,7 @@ export class GroqAIService {
 
       const response = chatCompletion.choices[0]?.message?.content;
       console.log('🤖 Raw OCR Text Analysis Response:', {
+        model: TEXT_MODEL,
         responseLength: response?.length || 0,
         rawResponse: response
       });
@@ -220,90 +195,6 @@ export class GroqAIService {
       console.error('Error with text-only processing:', error);
       throw new Error(`Text processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  /**
-   * Create prompt for vision model processing with OCR text
-   */
-  private createVisionPrompt(ocrText: string): string {
-    return `You are an expert educational assessment analyzer. I have an answer key image and OCR text extracted from it.
-
-OCR Text:
-${ocrText}
-
-Please analyze both the image and OCR text to extract and structure the answer key information. Return a JSON object with the following structure:
-
-{
-  "questions": [
-    {
-      "question_number": 1,
-      "question_text": "Optional question text if visible",
-      "correct_answer": "A",
-      "answer_type": "multiple_choice",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "points": 1
-    }
-  ],
-  "metadata": {
-    "total_questions": 10,
-    "subject": "Optional subject if identifiable",
-    "difficulty": "Optional difficulty level",
-    "instructions": "Any special instructions found"
-  }
-}
-
-Guidelines:
-- Extract all visible answer information
-- Identify question numbers and their corresponding correct answers
-- Determine answer types: multiple_choice, true_false, fill_blank, essay, matching
-- Include question text if clearly visible
-- For multiple choice, extract all options if visible
-- Provide accurate question count
-- Use the image to clarify any ambiguous OCR text
-- Return valid JSON only, no additional text`;
-  }
-
-  /**
-   * Create prompt for vision-only model processing (without OCR text)
-   */
-  private createVisionOnlyPrompt(): string {
-  return `You are an expert educational assessment analyzer. I have an answer key image that needs to be analyzed.
-
-This image may contain HANDWRITTEN short answers (words, numbers, units). The layout may be a simple numbered list (e.g., "1. Photosynthesis").
-
-Please carefully examine this image and extract all answer key information. Return a JSON object with the following structure:
-
-{
-  "questions": [
-    {
-      "question_number": 1,
-      "question_text": "Optional question text if clearly visible",
-      "correct_answer": "A",
-      "answer_type": "multiple_choice",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "points": 1
-    }
-  ],
-  "metadata": {
-    "total_questions": 10,
-    "subject": "Optional subject if identifiable",
-    "difficulty": "Optional difficulty level",
-    "instructions": "Any special instructions found"
-  }
-}
-
-Guidelines:
-- Carefully read all text in the image
-- Extract question numbers and their corresponding correct answers
-- Determine answer types: multiple_choice, true_false, fill_blank, essay, matching
-- Include question text if clearly readable
-- For handwritten short-answer keys (most common), use answer_type "fill_blank" and put the written response in correct_answer
-- For numbers/units (e.g., "300m", "0°C"), preserve symbols and units exactly
-- For crossed-out text, use the final written value if a replacement is clearly written
-- Provide accurate question count based on what you can see
-- Look for patterns that indicate answer keys (circles, letters, checkmarks)
-- Pay attention to headers, titles, or labels that might indicate this is an answer key
-- Return valid JSON only, no additional text or explanations`;
   }
 
   /**
@@ -359,15 +250,19 @@ Guidelines:
     });
 
     try {
+      // Qwen3 models prepend a `thinking` reasoning block before the answer.
+      // Strip it so JSON extraction is reliable.
+      const cleanedContent = this.stripThinkingPreamble(content);
+
       // 1) Try to parse as-is.
-      const direct = this.tryParseJson(content);
+      const direct = this.tryParseJson(cleanedContent);
       if (direct) {
         const sanitizedData = this.validateAndSanitizeData(direct);
         return sanitizedData;
       }
 
       // 2) Extract first JSON object.
-      const jsonMatch = this.extractFirstJsonObject(content);
+      const jsonMatch = this.extractFirstJsonObject(cleanedContent);
       if (!jsonMatch) {
         console.error('❌ No JSON found in AI response:', {
           content,
@@ -416,6 +311,39 @@ Guidelines:
           difficulty: 'Unknown'
         }
       };
+    }
+  }
+
+  /**
+   * Parse an AI response into raw JSON without the answer-key sanitization.
+   * Used for student answer sheets that return an "answers" schema.
+   */
+  private parseRawJson(content: string): any {
+    console.log('🔍 Parsing Raw AI Response:', {
+      contentLength: content.length,
+      rawContent: content
+    });
+
+    try {
+      const cleanedContent = this.stripThinkingPreamble(content);
+      const direct = this.tryParseJson(cleanedContent);
+      if (direct) return direct;
+
+      const jsonMatch = this.extractFirstJsonObject(cleanedContent);
+      if (!jsonMatch) {
+        console.error('❌ No JSON found in AI response:', {
+          contentPreview: content.substring(0, 500)
+        });
+        throw new Error('No JSON found in response');
+      }
+
+      return JSON.parse(this.repairCommonJsonIssues(jsonMatch));
+    } catch (error) {
+      console.error('❌ Error parsing raw AI response:', {
+        error,
+        contentPreview: content.substring(0, 1000)
+      });
+      return { answers: [], metadata: { totalQuestions: 0, processedQuestions: 0 } };
     }
   }
 
@@ -481,6 +409,17 @@ Guidelines:
   private extractFirstJsonObject(text: string): string | null {
     const match = text.match(/\{[\s\S]*\}/);
     return match?.[0] ?? null;
+  }
+
+  /**
+   * Qwen3 reasoning models emit a `thinking` block that ends with a
+   * ` response` marker. Remove everything before it to leave clean JSON.
+   */
+  private stripThinkingPreamble(text: string): string {
+    const marker = '\n response\n';
+    const index = text.lastIndexOf(marker);
+    if (index === -1) return text;
+    return text.slice(index + marker.length);
   }
 
   private repairCommonJsonIssues(jsonLike: string): string {

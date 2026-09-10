@@ -102,14 +102,13 @@ export function useAnswerProcessor() {
       // Create AI prompt for answer extraction
       const extractionPrompt = createAnswerExtractionPrompt(answerKeyData)
 
-      // Process with AI vision
+      // Process with AI (OCR + free text model)
       currentStatus.value = 'Analyzing answer sheet with AI...'
       progress.value = 60
 
       let extractedAnswers
       try {
-        // Use Groq vision model directly
-        extractedAnswers = await groqService!.processWithVision(extractionPrompt, imageBase64)
+        extractedAnswers = await groqService!.processStudentAnswerSheet(imageBase64, extractionPrompt)
 
         // Log the extracted answers result
         console.log('✅ Groq AI Vision Processing Result:', {

@@ -1,7 +1,7 @@
 import { useToast } from 'vue-toastification';
 import { useAuthUserStore } from '@/stores/authUser';
 import { useUserPagesStore } from '@/stores/pages';
-import { navigationConfig, type NavigationGroup, type NavigationItem } from '@/utils/navigation';
+import { navigationConfig, getPermissionForRoute, type NavigationGroup, type NavigationItem } from '@/utils/navigation';
 import type { RouteLocationNormalized, NavigationGuardNext, Router } from 'vue-router';
 import { ref, computed, watch } from 'vue';
 
@@ -52,7 +52,13 @@ export const useUserPermissions = () => {
       return true
     }
 
-    return userAccessiblePages.value.includes(route)
+    // Account-only routes that are not explicitly permission-gated
+    const requiredPermissions = getPermissionForRoute(route)
+    if (requiredPermissions.length === 0) {
+      return true
+    }
+
+    return requiredPermissions.some(permission => userAccessiblePages.value.includes(permission))
   }
 
   // Check if user has access to any route in a group
@@ -153,11 +159,13 @@ export const authGuard = async (to: RouteLocationNormalized, from: RouteLocation
           const rolePages = await pagesStore.fetchRolePagesByRoleId(userRoleId);
 
           if (rolePages && rolePages.length > 0) {
-            // Check if the current path is in the allowed pages
-            const allowedPages = rolePages.map(rolePage => rolePage.pages).filter(Boolean);
-            const isPageAllowed = allowedPages.includes(to.path);
+            // Determine required permissions for the requested path
+            const requiredPermissions = getPermissionForRoute(to.path)
+            const allowedPages = rolePages.map(rolePage => rolePage.pages).filter(Boolean) as string[]
+            const isPageAllowed = requiredPermissions.length === 0 || requiredPermissions.some(permission => allowedPages.includes(permission))
 
             console.log('Allowed pages for role:', allowedPages);
+            console.log('Required permissions for path:', requiredPermissions);
             console.log('Is page allowed:', isPageAllowed);
 
             if (!isPageAllowed) {

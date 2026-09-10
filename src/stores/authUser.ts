@@ -11,6 +11,7 @@ interface UserData {
   app_metadata?: Record<string, any>;
   full_name?: string;
   role_id?: number;
+  role_title?: string;
 }
 
 interface SessionUser {
@@ -34,7 +35,24 @@ export const useAuthUserStore = defineStore("authUser", () => {
   const userName = computed(() => userData.value?.user_metadata?.full_name || userData.value?.email || null);
   const userRole = computed(() => userData.value?.user_metadata?.role || null);
 
- async function registerUser(
+ // Resolve the role title from the roles table for a given role ID
+  async function fetchRoleTitle(roleId: number | null | undefined): Promise<string | undefined> {
+    if (!roleId) return undefined;
+    try {
+      const { data, error } = await supabase
+        .from("roles")
+        .select("title")
+        .eq("id", roleId)
+        .maybeSingle();
+
+      if (error || !data?.title) return undefined;
+      return data.title;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  async function registerUser(
     email: string,
     password: string,
     username: string,
@@ -89,6 +107,19 @@ export const useAuthUserStore = defineStore("authUser", () => {
       localStorage.setItem("refresh_token", data.session.refresh_token);
       localStorage.setItem("auth_id", user.id);
 
+      // Resolve the actual role title from the database for this role ID
+      const roleId = user.user_metadata?.role;
+      const roleTitle = await fetchRoleTitle(roleId);
+
+      if (!roleTitle) {
+        console.error("Login blocked: no matching role found for role ID:", roleId);
+        await supabase.auth.signOut();
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        localStorage.removeItem("auth_id");
+        return { error: new Error("Your account role is not configured. Contact your administrator.") };
+      }
+
       // Update the store's userData with Supabase user data only
       userData.value = {
         id: user.id,
@@ -97,11 +128,12 @@ export const useAuthUserStore = defineStore("authUser", () => {
         user_metadata: user.user_metadata,
         app_metadata: user.app_metadata,
         full_name: user.user_metadata?.full_name,
-        role_id: user.user_metadata?.role,
+        role_id: roleId,
+        role_title: roleTitle,
       };
 
       // Log successful login with current user role ID
-      console.log('Successful login - Current user role ID:', user.user_metadata?.role);
+      console.log('Successful login - Current user role ID:', roleId, '- Role title:', roleTitle);
 
       return { user };
     } finally {

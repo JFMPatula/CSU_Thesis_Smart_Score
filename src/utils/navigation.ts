@@ -108,3 +108,22 @@ export const getNavigationWithSelection = (selectedPermissions: string[] = []): 
     }))
   }))
 }
+
+// Map a route path to the permission(s) required to access it
+export const getPermissionForRoute = (path: string): string[] => {
+  for (const group of navigationConfig) {
+    for (const item of group.children) {
+      if (item.route === path) {
+        const permissions: string[] = []
+        if (group.permission) {
+          permissions.push(group.permission)
+        }
+        if (item.permission) {
+          permissions.push(item.permission)
+        }
+        return permissions
+      }
+    }
+  }
+  return []
+}

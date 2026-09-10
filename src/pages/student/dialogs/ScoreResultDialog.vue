@@ -273,9 +273,9 @@ watch(
                       </div>
                     </div>
 
-                    <!-- AI Explanation (if available and quiz is not active) -->
+                    <!-- AI Explanation (if available) -->
                     <div
-                      v-if="comparison.explanation && !isQuizActive"
+                      v-if="comparison.explanation"
                       class="text-caption text-medium-emphasis mt-1 ml-2"
                     >
                       <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>

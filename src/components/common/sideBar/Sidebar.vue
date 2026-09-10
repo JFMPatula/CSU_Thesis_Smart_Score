@@ -98,14 +98,12 @@ onMounted(() => {
     >
     <!-- Sidebar Header -->
     <v-list-item class="pa-4">
-      <v-list-item-content>
         <v-list-item-title class="text-h6 font-weight-bold primary--text">
         Menu
         </v-list-item-title>
         <v-list-item-subtitle class="text-caption grey--text">
           Management System
         </v-list-item-subtitle>
-      </v-list-item-content>
     </v-list-item>
 
     <v-divider class="mx-4"></v-divider>
@@ -183,11 +181,9 @@ onMounted(() => {
 
       <!-- Version Info -->
       <v-list-item class="pa-4">
-        <v-list-item-content>
-          <v-list-item-subtitle class="text-caption grey--text text-center">
-            Vuetify Template made by the strongest
-          </v-list-item-subtitle>
-        </v-list-item-content>
+        <v-list-item-subtitle class="text-caption grey--text text-center">
+          Vuetify Template made by the strongest
+        </v-list-item-subtitle>
       </v-list-item>
     </template>
   </v-navigation-drawer>

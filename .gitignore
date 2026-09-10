@@ -23,3 +23,10 @@ pnpm-debug.log*
 *.sw?
 .github
 githubSwitcher
+
+# temp Groq test scripts
+gqtest.cjs
+*.gqtest*.cjs
+
+# supabase local temp files
+supabase/.temp/
