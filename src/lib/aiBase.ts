@@ -1,4 +1,5 @@
 import { Groq } from 'groq-sdk';
+import { prepareImageSourceForOcr } from './ocrImage';
 
 // Free-tier text model on this Groq key. No vision model is free on this
 // account, so images are OCR'd locally (Tesseract) then structured to JSON here.
@@ -460,18 +461,28 @@ Guidelines:
    * Lightweight OCR fallback using Tesseract.js already in the project.
    */
   private async extractOcrTextFromBase64(imageBase64: string): Promise<string> {
+    const mimeType = this.detectMimeTypeFromBase64(imageBase64) ?? 'image/jpeg';
+    const dataUrl = `data:${mimeType};base64,${imageBase64}`;
+    let worker: Awaited<ReturnType<typeof import('tesseract.js').createWorker>> | null = null;
     try {
+      const prepared = await prepareImageSourceForOcr(dataUrl);
+      if (prepared === null) return '';
+
       const { createWorker } = await import('tesseract.js');
-      const mimeType = this.detectMimeTypeFromBase64(imageBase64) ?? 'image/jpeg';
-      const worker = await createWorker('eng');
-      const {
-        data: { text }
-      } = await worker.recognize(`data:${mimeType};base64,${imageBase64}`);
-      await worker.terminate();
-      return (text ?? '').toString();
+      worker = await createWorker('eng');
+      const { data } = await worker.recognize(prepared);
+      return (data.text ?? '').toString();
     } catch (e) {
       console.warn('OCR fallback failed:', e);
       return '';
+    } finally {
+      if (worker) {
+        try {
+          await worker.terminate();
+        } catch (e) {
+          // Ignore termination errors on cleanup.
+        }
+      }
     }
   }
 

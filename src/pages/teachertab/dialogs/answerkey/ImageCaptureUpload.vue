@@ -148,6 +148,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { PDFDocument } from 'pdf-lib'
 import { createWorker } from 'tesseract.js'
+import { prepareImageSourceForOcr } from '@/lib/ocrImage'
 import * as pdfjsLib from 'pdfjs-dist'
 
 // Set up pdf.js worker using CDN for exact version match
@@ -292,11 +293,17 @@ const performOCROnImage = async (imageFile: File): Promise<OCRResult> => {
       fileType: imageFile.type
     })
 
+    const prepared = await prepareImageSourceForOcr(imageFile)
+    if (prepared === null) {
+      console.warn('⚠️ OCR skipped: image could not be prepared for recognition')
+      return { text: '', confidence: 0, words: [] }
+    }
+
     const worker = await createWorker('eng')
 
     console.log('⚙️ OCR Worker initialized')
 
-    const { data } = await worker.recognize(imageFile)
+    const { data } = await worker.recognize(prepared)
 
     console.log('✅ OCR Processing Complete:', {
       textLength: data.text.length,
