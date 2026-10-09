@@ -30,3 +30,4 @@ gqtest.cjs
 
 # supabase local temp files
 supabase/.temp/
+.vercel

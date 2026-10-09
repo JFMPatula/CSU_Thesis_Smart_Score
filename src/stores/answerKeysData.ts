@@ -3,8 +3,12 @@ import { ref, computed, watch } from 'vue';
 import { supabase } from '@/lib/supabase';
 import { useToast } from 'vue-toastification';
 
-// Define the base domain for the quiz application
-const BASE_DOMAIN = 'https://csu-smart-score.vercel.app';
+// Define the base domain for the quiz application.
+// Prefer an explicit env override, otherwise use the origin the app is actually served from
+// (so QR links always match the current deployment, including previews).
+const BASE_DOMAIN =
+    import.meta.env.VITE_APP_URL ||
+    (typeof window !== 'undefined' ? window.location.origin : 'https://csu-smartscore.vercel.app');
 const QUIZ_PATH = '/student/quiz';
 
 // Define the base URL for answer images storage
@@ -113,7 +117,7 @@ export const useAnswerKeysStore = defineStore('answerKeys', () => {
                 .from('answer_keys')
                 .select('*')
                 .eq('id', id)
-                .single();
+                .maybeSingle();
 
             if (error) throw error;
 

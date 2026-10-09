@@ -2,7 +2,28 @@ import { computed, ref } from "vue";
 import type { Ref } from "vue";
 import { defineStore } from "pinia";
 import { useRouter } from "vue-router";
-import { supabase, supabaseAdmin } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+
+// Build an Authorization header from the current Supabase session so the
+// serverless admin endpoints can verify the caller.
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Map a Supabase auth user to the shape used throughout the UI.
+function mapAuthUser(user: any): UserData {
+  return {
+    id: user.id,
+    email: user.email,
+    created_at: user.created_at,
+    user_metadata: user.user_metadata,
+    app_metadata: user.app_metadata,
+    full_name: user.user_metadata?.full_name,
+    role_id: user.user_metadata?.role,
+  };
+}
 interface UserData {
   id: string;
   email?: string;
@@ -270,31 +291,27 @@ export const useAuthUserStore = defineStore("authUser", () => {
     }
   }
 
-  // Get all users using admin service role
+  // Get all users via the serverless admin endpoint
   async function getAllUsers() {
     loading.value = true;
     try {
-      const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+      const response = await fetch("/api/admin-users", {
+        headers: await getAuthHeaders(),
+      });
+      const payload = await response.json().catch(() => ({}));
 
-      if (error) {
+      if (!response.ok) {
+        const error = new Error(payload?.error || `Request failed (${response.status})`);
         console.error("Error fetching all users:", error);
         return { error };
       }
 
-      if (!data?.users) {
+      if (!payload?.users) {
         return { error: new Error("No users data returned") };
       }
 
       // Map users to the expected format
-      const mappedUsers: UserData[] = data.users.map(user => ({
-        id: user.id,
-        email: user.email,
-        created_at: user.created_at,
-        user_metadata: user.user_metadata,
-        app_metadata: user.app_metadata,
-        full_name: user.user_metadata?.full_name,
-        role_id: user.user_metadata?.role
-      }));
+      const mappedUsers: UserData[] = payload.users.map(mapAuthUser);
 
       // Store users in the reactive state
       users.value = mappedUsers;
@@ -308,13 +325,18 @@ export const useAuthUserStore = defineStore("authUser", () => {
     }
   }
 
-  // Delete user using admin service role
+  // Delete user via the serverless admin endpoint
   async function deleteUser(userId: string) {
     loading.value = true;
     try {
-      const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      const response = await fetch(`/api/admin-users?id=${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+        headers: await getAuthHeaders(),
+      });
+      const payload = await response.json().catch(() => ({}));
 
-      if (error) {
+      if (!response.ok) {
+        const error = new Error(payload?.error || `Request failed (${response.status})`);
         console.error("Error deleting user:", error);
         return { error };
       }
@@ -331,7 +353,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
     }
   }
 
-  // Update user using admin service role
+  // Update user via the serverless admin endpoint
   async function updateUser(userId: string, updateData: {
     email?: string;
     password?: string;
@@ -339,27 +361,28 @@ export const useAuthUserStore = defineStore("authUser", () => {
   }) {
     loading.value = true;
     try {
-      const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, updateData);
+      const response = await fetch(`/api/admin-users?id=${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        headers: {
+          ...(await getAuthHeaders()),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(updateData),
+      });
+      const payload = await response.json().catch(() => ({}));
 
-      if (error) {
+      if (!response.ok) {
+        const error = new Error(payload?.error || `Request failed (${response.status})`);
         console.error("Error updating user:", error);
         return { error };
       }
 
-      if (!data.user) {
+      if (!payload?.user) {
         return { error: new Error("No user data returned") };
       }
 
       // Update the user in local state
-      const updatedUser: UserData = {
-        id: data.user.id,
-        email: data.user.email,
-        created_at: data.user.created_at,
-        user_metadata: data.user.user_metadata,
-        app_metadata: data.user.app_metadata,
-        full_name: data.user.user_metadata?.full_name,
-        role_id: data.user.user_metadata?.role
-      };
+      const updatedUser: UserData = mapAuthUser(payload.user);
 
       const userIndex = users.value.findIndex(user => user.id === userId);
       if (userIndex !== -1) {

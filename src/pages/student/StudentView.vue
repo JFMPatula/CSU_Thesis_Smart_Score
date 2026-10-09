@@ -36,6 +36,7 @@ const processingResults = ref<any>(null);
 const submittedImage = ref<File | Blob | null>(null);
 const scoreResults = ref<any>(null);
 const submissionData = ref<any>(null);
+const quizNotFound = ref(false);
 
 // Which dialog should open after the reminders are acknowledged
 const remindersNext = ref<'upload' | 'camera'>('upload');
@@ -53,7 +54,9 @@ const quizDescription = computed(
 );
 const isQuizActive = computed(() => quizInfo.value?.isActive || false);
 const isQuizLoaded = computed(() => studentQuizStore.isQuizLoaded);
-const loading = computed(() => !isQuizLoaded.value && quizId.value !== "");
+const loading = computed(
+  () => !isQuizLoaded.value && !quizNotFound.value && quizId.value !== "",
+);
 
 /**
  * Fetch quiz information based on the route parameter
@@ -61,22 +64,25 @@ const loading = computed(() => !isQuizLoaded.value && quizId.value !== "");
 const fetchQuizInfo = async () => {
   if (!quizId.value) {
     console.error("Invalid quiz ID");
+    quizNotFound.value = true;
     return;
   }
 
   try {
     const { data, error } = await studentQuizStore.loadQuiz(quizId.value);
 
-    if (error) {
-      console.error("Error fetching quiz:", error);
+    if (error || !data) {
+      console.error("Quiz not found:", error);
+      quizNotFound.value = true;
       return;
     }
 
-    if (data && !data.is_active) {
+    if (!data.is_active) {
       console.warn("This quiz is currently inactive");
     }
   } catch (error) {
     console.error("Error:", error);
+    quizNotFound.value = true;
   }
 };
 
@@ -166,10 +172,14 @@ const handleAnswersSubmit = async (finalAnswers: any) => {
 
     // Grade the student answers by comparing with answer key using AI synonym checking
     console.log("🧮 Grading student submission with AI synonym checking...");
-    const gradingResult = await studentQuizStore.gradeStudentSubmission(
-      finalAnswers.answers,
-      parseInt(quizId.value),
-    );
+    const gradedAt = performance.now();
+    const gradingResult = {
+      ...(await studentQuizStore.gradeStudentSubmission(
+        finalAnswers.answers,
+        parseInt(quizId.value),
+      )),
+      checkingTimeMs: Math.round(performance.now() - gradedAt),
+    };
 
     console.log("📊 Grading Result:", gradingResult);
 
@@ -317,15 +327,13 @@ onUnmounted(() => {
 
               <!-- Status Messages -->
               <v-alert
-                v-if="!isQuizActive"
-                type="info"
+                v-if="quizNotFound"
+                type="error"
                 variant="tonal"
                 density="compact"
                 class="mt-4"
               >
-                This quiz is currently inactive. You can still view your
-                previous submissions and see correct answers with AI
-                explanations.
+                Quiz not found. Please check your link or QR code.
               </v-alert>
 
               <v-alert
@@ -336,6 +344,18 @@ onUnmounted(() => {
                 class="mt-4"
               >
                 Invalid quiz ID
+              </v-alert>
+
+              <v-alert
+                v-else-if="!isQuizActive"
+                type="info"
+                variant="tonal"
+                density="compact"
+                class="mt-4"
+              >
+                This quiz is currently inactive. You can still view your
+                previous submissions and see correct answers with AI
+                explanations.
               </v-alert>
             </div>
 

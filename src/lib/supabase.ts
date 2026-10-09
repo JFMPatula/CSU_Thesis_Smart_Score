@@ -5,17 +5,12 @@ import { useToast } from 'vue-toastification';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabaseServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Service role client for admin operations
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-});
+// NOTE: privileged admin operations (list/delete/update users) must NOT run in
+// the browser with the service role key. They are handled by the serverless
+// function at /api/admin-users instead.
 
 export async function doLogout() {
     // Confirm logout

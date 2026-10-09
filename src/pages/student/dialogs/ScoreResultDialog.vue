@@ -31,6 +31,7 @@ interface Props {
       confidence?: number;
       explanation?: string;
     }>;
+    checkingTimeMs?: number;
   };
 }
 
@@ -57,6 +58,13 @@ const scoreColor = computed(() => getScoreColor(scorePercentage.value));
 const scoreGrade = computed(() => getGradeLetter(scorePercentage.value));
 const passStatus = computed(() => getPassStatus(scorePercentage.value));
 const isQuizActive = computed(() => currentQuiz.value?.is_active || false);
+
+const checkingTimeLabel = computed(() => {
+  const ms = props.scoreData?.checkingTimeMs;
+  if (ms === undefined || ms === null) return "";
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+});
 
 /**
  * Fetch quiz data to check if it's active
@@ -178,6 +186,19 @@ watch(
               {{ passStatus ? "PASSED" : "FAILED" }}
             </v-chip>
           </v-card-text>
+        </v-card>
+
+        <!-- Checking Time -->
+        <v-card
+          v-if="checkingTimeLabel"
+          variant="tonal"
+          color="primary"
+          class="mb-4 text-center pa-2"
+        >
+          <v-icon left small class="mr-1">mdi-timer-outline</v-icon>
+          <span class="text-body-1">
+            Checking time: {{ checkingTimeLabel }}
+          </span>
         </v-card>
 
         <!-- Statistics -->
