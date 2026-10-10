@@ -110,3 +110,69 @@ export async function prepareImageSourceForOcr(
     if (objectUrl) URL.revokeObjectURL(objectUrl);
   }
 }
+
+export interface VisionImageSource {
+  base64: string;
+  mimeType: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Build an image URL / data URL from a File/Blob or string source.
+ */
+function resolveSourceUrl(source: File | Blob | string): { src: string; revoke: () => void } {
+  if (typeof source === 'string') return { src: source, revoke: () => {} };
+  const url = URL.createObjectURL(source);
+  return { src: url, revoke: () => URL.revokeObjectURL(url) };
+}
+
+/**
+ * Downscale and re-encode an image for sending to a vision model.
+ * Color is kept (vision models benefit from it) and the image is re-encoded as
+ * JPEG so the payload stays well under the serverless request-body limit.
+ */
+export async function prepareImageSourceForVision(
+  source: File | Blob | string,
+  options: { maxDimension?: number; quality?: number } = {}
+): Promise<VisionImageSource | null> {
+  const opts = { maxDimension: 2048, quality: 0.85, ...options };
+  if (typeof document === 'undefined') return null;
+
+  const { src, revoke } = resolveSourceUrl(source);
+  try {
+    const img = await loadImageElement(src);
+    console.log('🔍 Vision source image dimensions:', { width: img.width, height: img.height });
+
+    if (img.width < DEFAULTS.minDimension || img.height < DEFAULTS.minDimension) {
+      console.warn(`⚠️ Vision skipped: image too small (${img.width}x${img.height}).`);
+      return null;
+    }
+
+    const longest = Math.max(img.width, img.height);
+    let scale = 1;
+    if (longest > opts.maxDimension) scale = opts.maxDimension / longest;
+    else if (longest < 400) scale = Math.min(4, 400 / longest);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', opts.quality);
+    const base64 = dataUrl.split(',')[1];
+    return { base64, mimeType: 'image/jpeg', width: canvas.width, height: canvas.height };
+  } catch (e) {
+    console.warn('⚠️ Vision preprocessing failed.', e);
+    return null;
+  } finally {
+    revoke();
+  }
+}

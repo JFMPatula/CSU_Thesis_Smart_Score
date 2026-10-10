@@ -1,5 +1,5 @@
 import { Groq } from 'groq-sdk';
-import { prepareImageSourceForOcr } from './ocrImage';
+import { transcribeImage } from './vision';
 
 // Free-tier text model on this Groq key. No vision model is free on this
 // account, so images are OCR'd locally (Tesseract) then structured to JSON here.
@@ -442,47 +442,16 @@ Guidelines:
   }
 
   /**
-   * Detect common image MIME types from base64 payload.
-   */
-  private detectMimeTypeFromBase64(base64: string): string | null {
-    const head = base64.slice(0, 16);
-    // JPEG: /9j/
-    if (head.startsWith('/9j/')) return 'image/jpeg';
-    // PNG: iVBORw0KGgo
-    if (head.startsWith('iVBORw0KGgo')) return 'image/png';
-    // GIF: R0lGOD
-    if (head.startsWith('R0lGOD')) return 'image/gif';
-    // WEBP: UklGR
-    if (head.startsWith('UklGR')) return 'image/webp';
-    return null;
-  }
-
-  /**
-   * Lightweight OCR fallback using Tesseract.js already in the project.
+   * Extract and parse text from an image, preferring the Gemini vision model
+   * and falling back to local Tesseract OCR.
    */
   private async extractOcrTextFromBase64(imageBase64: string): Promise<string> {
-    const mimeType = this.detectMimeTypeFromBase64(imageBase64) ?? 'image/jpeg';
-    const dataUrl = `data:${mimeType};base64,${imageBase64}`;
-    let worker: Awaited<ReturnType<typeof import('tesseract.js').createWorker>> | null = null;
     try {
-      const prepared = await prepareImageSourceForOcr(dataUrl);
-      if (prepared === null) return '';
-
-      const { createWorker } = await import('tesseract.js');
-      worker = await createWorker('eng');
-      const { data } = await worker.recognize(prepared);
-      return (data.text ?? '').toString();
+      const { text } = await transcribeImage(imageBase64);
+      return text;
     } catch (e) {
       console.warn('OCR fallback failed:', e);
       return '';
-    } finally {
-      if (worker) {
-        try {
-          await worker.terminate();
-        } catch (e) {
-          // Ignore termination errors on cleanup.
-        }
-      }
     }
   }
 

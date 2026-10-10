@@ -147,8 +147,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { PDFDocument } from 'pdf-lib'
-import { createWorker } from 'tesseract.js'
-import { prepareImageSourceForOcr } from '@/lib/ocrImage'
+import { transcribeImage } from '@/lib/vision'
 import * as pdfjsLib from 'pdfjs-dist'
 
 // Set up pdf.js worker using CDN for exact version match
@@ -293,35 +292,20 @@ const performOCROnImage = async (imageFile: File): Promise<OCRResult> => {
       fileType: imageFile.type
     })
 
-    const prepared = await prepareImageSourceForOcr(imageFile)
-    if (prepared === null) {
-      console.warn('⚠️ OCR skipped: image could not be prepared for recognition')
-      return { text: '', confidence: 0, words: [] }
-    }
-
-    const worker = await createWorker('eng')
-
-    console.log('⚙️ OCR Worker initialized')
-
-    const { data } = await worker.recognize(prepared)
+    const result = await transcribeImage(imageFile)
 
     console.log('✅ OCR Processing Complete:', {
-      textLength: data.text.length,
-      confidence: data.confidence,
-      wordsCount: (data as any).words?.length || 0,
-      extractedText: data.text.substring(0, 200) + (data.text.length > 200 ? '...' : '')
+      engine: result.engine,
+      textLength: result.text.length,
+      confidence: result.confidence,
+      wordsCount: result.words.length,
+      extractedText: result.text.substring(0, 200) + (result.text.length > 200 ? '...' : '')
     })
 
-    await worker.terminate()
-
     return {
-      text: data.text,
-      confidence: data.confidence,
-      words: ((data as any).words || []).map((word: any) => ({
-        text: word.text,
-        bbox: word.bbox,
-        confidence: word.confidence
-      }))
+      text: result.text,
+      confidence: result.confidence,
+      words: result.words
     }
   } catch (error) {
     console.error('❌ OCR Error:', error)
