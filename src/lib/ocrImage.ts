@@ -27,6 +27,30 @@ const DEFAULTS: Required<OcrPrepOptions> = {
 };
 
 /**
+ * Detect the MIME type of a raw base64 payload from its header bytes.
+ */
+function detectMimeFromBase64(base64: string): string {
+  const head = base64.slice(0, 16);
+  if (head.startsWith('/9j/')) return 'image/jpeg';
+  if (head.startsWith('iVBORw0KGgo')) return 'image/png';
+  if (head.startsWith('R0lGOD')) return 'image/gif';
+  if (head.startsWith('UklGR')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+/**
+ * Normalize a string image source into something an <img> can load.
+ *
+ * Raw base64 (a bare payload without a `data:` prefix) is wrapped with its
+ * detected MIME type. Without this, the browser treats the base64 as a
+ * relative URL and issues a request like `GET https://app/9j/4AAQ...` -> 414.
+ */
+export function normalizeImageSource(source: string): string {
+  if (/^(data:|https?:|blob:)/i.test(source)) return source;
+  return `data:${detectMimeFromBase64(source)};base64,${source}`;
+}
+
+/**
  * Load an image element from a URL or data URL.
  */
 function loadImageElement(src: string): Promise<HTMLImageElement> {
@@ -56,7 +80,7 @@ export async function prepareImageSourceForOcr(
   }
 
   const objectUrl = typeof source === 'string' ? null : URL.createObjectURL(source);
-  const src = objectUrl ?? (source as string);
+  const src = objectUrl ?? normalizeImageSource(source as string);
 
   try {
     const img = await loadImageElement(src);
@@ -122,7 +146,7 @@ export interface VisionImageSource {
  * Build an image URL / data URL from a File/Blob or string source.
  */
 function resolveSourceUrl(source: File | Blob | string): { src: string; revoke: () => void } {
-  if (typeof source === 'string') return { src: source, revoke: () => {} };
+  if (typeof source === 'string') return { src: normalizeImageSource(source), revoke: () => {} };
   const url = URL.createObjectURL(source);
   return { src: url, revoke: () => URL.revokeObjectURL(url) };
 }

@@ -2,7 +2,7 @@
 // function) first, falling back to local Tesseract when the endpoint is
 // unavailable (e.g. local dev) or when no GEMINI_API_KEY is configured.
 
-import { prepareImageSourceForOcr, prepareImageSourceForVision } from './ocrImage';
+import { normalizeImageSource, prepareImageSourceForOcr, prepareImageSourceForVision } from './ocrImage';
 
 export interface TranscribeResult {
   text: string;
@@ -19,25 +19,11 @@ const DEFAULT_VISION_PROMPT =
   'Transcribe all visible text from this image exactly as written, preserving line breaks and the layout of questions and answers. Output only the transcribed text.';
 
 /**
- * Detect the MIME type of a raw base64 payload from its header bytes.
- */
-function detectMimeFromBase64(base64: string): string {
-  const head = base64.slice(0, 16);
-  if (head.startsWith('/9j/')) return 'image/jpeg';
-  if (head.startsWith('iVBORw0KGgo')) return 'image/png';
-  if (head.startsWith('R0lGOD')) return 'image/gif';
-  if (head.startsWith('UklGR')) return 'image/webp';
-  return 'image/jpeg';
-}
-
-/**
  * Build a loadable URL from a File/Blob or string (base64 or data URL).
  */
 function toImageUrl(source: File | Blob | string): string {
   if (typeof source !== 'string') return ''; // Files handled by prepareImageSourceForVision
-  if (source.startsWith('data:')) return source;
-  const mimeType = detectMimeFromBase64(source);
-  return `data:${mimeType};base64,${source}`;
+  return normalizeImageSource(source);
 }
 
 /**
