@@ -3,7 +3,7 @@ import { ref, watch, computed } from 'vue';
 import { useAnswerKeysStore } from '@/stores/answerKeysData';
 import type { Student } from '@/stores/studentsData';
 import { getScoreColor, getGradeLetter, formatDate, getQuestionNumber } from '../utils/helpers';
-import { getAnswerValue, getCorrectAnswerForQuestion, isAnswerCorrect, batchCheckAnswersWithAI } from '../utils/getHelpers';
+import { getAnswerValue, getCorrectAnswerForQuestion, isAnswerCorrect } from '../utils/getHelpers';
 
 // Props
 interface Props {
@@ -28,11 +28,6 @@ const answerKeysStore = useAnswerKeysStore();
 // State
 const answerKeyData = ref<any>(null);
 const isLoading = ref(false);
-const aiComparisons = ref<Map<number, {
-  areEquivalent: boolean;
-  confidence: number;
-  explanation: string;
-}>>(new Map());
 
 // Computed
 const passStatus = computed(() => (props.student?.score ?? 0) >= 75);
@@ -58,9 +53,6 @@ const fetchAnswerKeyData = async () => {
       answerKeyData.value = data;
       console.log('Answer key data loaded successfully:', data);
       console.log('Answer keys structure:', data.answer_keys);
-
-      // Perform AI synonym checking for answers
-      await performAISynonymChecking();
     } else {
       console.warn('No answer key data returned');
     }
@@ -72,92 +64,6 @@ const fetchAnswerKeyData = async () => {
 };
 
 /**
- * Perform AI synonym checking on student answers using the new batch helper
- */
-const performAISynonymChecking = async () => {
-  if (!props.student?.answers || !answerKeyData.value?.answer_keys?.questions) {
-    console.log('No answers or answer key data available for AI checking');
-    return;
-  }
-
-  try {
-    const answerKeyQuestions = answerKeyData.value.answer_keys.questions;
-
-    // Create a map of correct answers by question number
-    const correctAnswersMap = new Map<number, string>();
-    answerKeyQuestions.forEach((q: any) => {
-      correctAnswersMap.set(q.question_number, q.correct_answer);
-    });
-
-    // Prepare answer pairs for batch checking
-    const answerPairs: Array<{
-      questionNumber: number;
-      studentAnswer: string;
-      correctAnswer: string;
-    }> = [];
-
-    // Handle different answer formats
-    const studentAnswers = props.student.answers;
-
-    if (typeof studentAnswers === 'object' && !Array.isArray(studentAnswers)) {
-      // Object format
-      Object.entries(studentAnswers).forEach(([key, answer]) => {
-        const questionNum = getQuestionNumber(key);
-        const correctAnswer = correctAnswersMap.get(questionNum);
-        const studentAnswer = getAnswerValue(answer);
-
-        if (correctAnswer && studentAnswer && studentAnswer !== 'No Answer') {
-          answerPairs.push({
-            questionNumber: questionNum,
-            studentAnswer,
-            correctAnswer
-          });
-        }
-      });
-    } else if (Array.isArray(studentAnswers)) {
-      // Array format
-      studentAnswers.forEach((answer, index) => {
-        const questionNum = answer?.questionNumber || index + 1;
-        const correctAnswer = correctAnswersMap.get(questionNum);
-        const studentAnswer = getAnswerValue(answer);
-
-        if (correctAnswer && studentAnswer && studentAnswer !== 'No Answer') {
-          answerPairs.push({
-            questionNumber: questionNum,
-            studentAnswer,
-            correctAnswer
-          });
-        }
-      });
-    }
-
-    if (answerPairs.length === 0) {
-      console.log('No answer pairs to check');
-      return;
-    }
-
-    console.log('🤖 Performing AI synonym checking for', answerPairs.length, 'answers');
-
-    // Use the new batch checking helper with AI synonym support
-    const results = await batchCheckAnswersWithAI(answerPairs);
-
-    // Store results in map
-    aiComparisons.value.clear();
-    results.forEach((result, questionNumber) => {
-      aiComparisons.value.set(questionNumber, {
-        areEquivalent: result.isCorrect,
-        confidence: result.confidence,
-        explanation: result.explanation
-      });
-    });
-
-    console.log('✅ AI synonym checking completed:', aiComparisons.value);
-  } catch (error) {
-    console.error('❌ Error performing AI synonym checking:', error);
-  }
-};
-
-/**
  * Get correct answer from answer key data
  */
 const getCorrectAnswer = (questionNumber: string | number) => {
@@ -165,27 +71,37 @@ const getCorrectAnswer = (questionNumber: string | number) => {
 };
 
 /**
- * Check if student answer is correct (with AI synonym checking)
+ * Check if student answer is correct
+ *
+ * Priority:
+ *  1. Stored verdict persisted at grading time (single source of truth, so the
+ *     teacher view shows the exact same per-question result as the student).
+ *  2. Deterministic exact-match fallback for legacy records (no live AI — live
+ *     AI is non-deterministic and made the student and teacher views disagree).
  */
-const isAnswerCorrectLocal = (studentAnswer: string, questionNumber: string | number) => {
-  const questionNum = typeof questionNumber === 'string' ? getQuestionNumber(questionNumber) : questionNumber;
-
-  // Check if we have AI comparison result for this question
-  const aiResult = aiComparisons.value.get(questionNum);
-  if (aiResult) {
-    return aiResult.areEquivalent;
+const isAnswerCorrectLocal = (studentAnswer: string, questionNumber: string | number, answerObj?: any) => {
+  if (answerObj && typeof answerObj.isCorrect === 'boolean') {
+    return answerObj.isCorrect;
   }
 
-  // Fallback to exact match
+  // Deterministic fallback shared with the teacher view.
   return isAnswerCorrect(studentAnswer, questionNumber, answerKeyData.value);
 };
 
 /**
- * Get AI comparison data for a question
+ * Get AI comparison data for a question.
+ * Only returns data persisted at grading time - no live AI calls, so the
+ * student and teacher views always render the same explanation/verdict.
  */
-const getAIComparison = (questionNumber: string | number) => {
-  const questionNum = typeof questionNumber === 'string' ? getQuestionNumber(questionNumber) : questionNumber;
-  return aiComparisons.value.get(questionNum);
+const getAIComparison = (_questionNumber: string | number, answerObj?: any) => {
+  if (answerObj && typeof answerObj.aiExplanation === 'string') {
+    return {
+      areEquivalent: !!answerObj.isCorrect,
+      confidence: typeof answerObj.aiConfidence === 'number' ? answerObj.aiConfidence : undefined,
+      explanation: answerObj.aiExplanation
+    };
+  }
+  return undefined;
 };
 
 /**
@@ -193,7 +109,6 @@ const getAIComparison = (questionNumber: string | number) => {
  */
 const handleClose = () => {
   answerKeyData.value = null;
-  aiComparisons.value.clear();
   emit('update:modelValue', false);
   emit('close');
 };
@@ -348,7 +263,7 @@ watch(() => props.modelValue, (isOpen) => {
                           <span class="text-body-1">Question {{ getQuestionNumber(questionKey) }}</span>
                           <div class="d-flex gap-2">
                             <v-chip
-                              :color="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey)) ? 'success' : 'error'"
+                              :color="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey), answer) ? 'success' : 'error'"
                               size="small"
                               variant="outlined"
                             >
@@ -367,18 +282,18 @@ watch(() => props.modelValue, (isOpen) => {
 
                         <!-- AI Explanation (if available) -->
                         <div
-                          v-if="getAIComparison(getQuestionNumber(questionKey))"
+                          v-if="getAIComparison(getQuestionNumber(questionKey), answer)"
                           class="text-caption text-medium-emphasis mt-1 ml-2"
                         >
                           <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
-                          {{ getAIComparison(getQuestionNumber(questionKey))?.explanation }}
+                          {{ getAIComparison(getQuestionNumber(questionKey), answer)?.explanation }}
                           <v-chip
-                            v-if="getAIComparison(getQuestionNumber(questionKey))?.confidence !== undefined"
+                            v-if="getAIComparison(getQuestionNumber(questionKey), answer)?.confidence !== undefined"
                             size="x-small"
                             variant="text"
                             class="ml-2"
                           >
-                            Confidence: {{ Math.round((getAIComparison(getQuestionNumber(questionKey))?.confidence || 0) * 100) }}%
+                            Confidence: {{ Math.round((getAIComparison(getQuestionNumber(questionKey), answer)?.confidence || 0) * 100) }}%
                           </v-chip>
                         </div>
                       </div>
@@ -386,8 +301,8 @@ watch(() => props.modelValue, (isOpen) => {
 
                     <template #append>
                       <v-icon
-                        :color="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey)) ? 'success' : 'error'"
-                        :icon="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey)) ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey), answer) ? 'success' : 'error'"
+                        :icon="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey), answer) ? 'mdi-check-circle' : 'mdi-close-circle'"
                       />
                     </template>
                   </v-list-item>
@@ -415,7 +330,7 @@ watch(() => props.modelValue, (isOpen) => {
                           <span class="text-body-1">Question {{ answer?.questionNumber || index + 1 }}</span>
                           <div class="d-flex gap-2">
                             <v-chip
-                              :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1) ? 'success' : 'error'"
+                              :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1, answer) ? 'success' : 'error'"
                               size="small"
                               variant="outlined"
                             >
@@ -434,18 +349,18 @@ watch(() => props.modelValue, (isOpen) => {
 
                         <!-- AI Explanation (if available) -->
                         <div
-                          v-if="getAIComparison(answer?.questionNumber || index + 1)"
+                          v-if="getAIComparison(answer?.questionNumber || index + 1, answer)"
                           class="text-caption text-medium-emphasis mt-1 ml-2"
                         >
                           <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
-                          {{ getAIComparison(answer?.questionNumber || index + 1)?.explanation }}
+                          {{ getAIComparison(answer?.questionNumber || index + 1, answer)?.explanation }}
                           <v-chip
-                            v-if="getAIComparison(answer?.questionNumber || index + 1)?.confidence !== undefined"
+                            v-if="getAIComparison(answer?.questionNumber || index + 1, answer)?.confidence !== undefined"
                             size="x-small"
                             variant="text"
                             class="ml-2"
                           >
-                            Confidence: {{ Math.round((getAIComparison(answer?.questionNumber || index + 1)?.confidence || 0) * 100) }}%
+                            Confidence: {{ Math.round((getAIComparison(answer?.questionNumber || index + 1, answer)?.confidence || 0) * 100) }}%
                           </v-chip>
                         </div>
                       </div>
@@ -453,8 +368,8 @@ watch(() => props.modelValue, (isOpen) => {
 
                     <template #append>
                       <v-icon
-                        :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1) ? 'success' : 'error'"
-                        :icon="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1) ? 'mdi-check-circle' : 'mdi-close-circle'"
+                        :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1, answer) ? 'success' : 'error'"
+                        :icon="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1, answer) ? 'mdi-check-circle' : 'mdi-close-circle'"
                       />
                     </template>
                   </v-list-item>

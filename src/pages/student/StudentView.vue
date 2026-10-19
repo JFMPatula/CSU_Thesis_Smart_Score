@@ -183,12 +183,35 @@ const handleAnswersSubmit = async (finalAnswers: any) => {
 
     console.log("📊 Grading Result:", gradingResult);
 
+    // Persist the per-question grading verdict alongside each answer so the
+    // student view and teacher view both read the SAME stored result instead
+    // of re-running AI (which is non-deterministic and can disagree).
+    const comparisonsByQuestion = new Map<number, any>();
+    (gradingResult.comparisons || []).forEach((c: any) => {
+      if (c && typeof c.questionNumber !== "undefined") {
+        comparisonsByQuestion.set(c.questionNumber, c);
+      }
+    });
+
+    const answersWithVerdict = (finalAnswers.answers || []).map((ans: any) => {
+      const cmp = comparisonsByQuestion.get(ans?.questionNumber);
+      if (!cmp) return ans;
+      return {
+        ...ans,
+        isCorrect: cmp.isCorrect,
+        correctAnswer: cmp.correctAnswer,
+        correctAnswerText: cmp.correctAnswer,
+        aiConfidence: cmp.confidence,
+        aiExplanation: cmp.explanation,
+      };
+    });
+
     // Prepare student data
     const studentData = {
       fullname: finalAnswers.studentName,
       student_id: finalAnswers.studentId,
       answer_key_id: parseInt(quizId.value),
-      answers: finalAnswers.answers,
+      answers: answersWithVerdict,
       image_url: imageUrl,
       score: gradingResult.score,
       remarks: gradingResult.remarks,

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, watch, ref, onMounted } from 'vue'
+import { computed, watch } from 'vue'
 import type { Student } from '@/stores/studentsData'
 import { useAnswerKeysStore } from '@/stores/answerKeysData'
 import { getScoreColor, formatFullDate } from '@/pages/student/utils/helpers'
-import { getAnswerCardClass, getCorrectAnswerForQuestion, getAnswerValue, batchCheckAnswersWithAI } from '@/pages/student/utils/getHelpers'
+import { getAnswerCardClass, getCorrectAnswerForQuestion, getAnswerValue } from '@/pages/student/utils/getHelpers'
 
 // Props
 interface Props {
@@ -26,14 +26,6 @@ const emit = defineEmits<{
 // Store
 const answerKeysStore = useAnswerKeysStore()
 
-// State for AI synonym checking
-const aiComparisons = ref<Map<number, {
-  areEquivalent: boolean;
-  confidence: number;
-  explanation: string;
-}>>(new Map())
-const isLoadingAI = ref(false)
-
 const answerKeyData = computed(() => {
   if (!props.student?.answer_key_id) return null
   return answerKeysStore.answerKeys.find(ak => ak.id === props.student?.answer_key_id)
@@ -41,11 +33,8 @@ const answerKeyData = computed(() => {
 
 // Ensure answer keys are loaded when dialog opens
 watch(() => props.modelValue, async (isOpen) => {
-  if (isOpen) {
-    if (answerKeysStore.answerKeys.length === 0) {
-      await answerKeysStore.fetchAnswerKeys()
-    }
-    await performAISynonymChecking()
+  if (isOpen && answerKeysStore.answerKeys.length === 0) {
+    await answerKeysStore.fetchAnswerKeys()
   }
 })
 
@@ -55,8 +44,8 @@ const performanceSummary = computed(() => {
 
   const totalQuestions = parsedAnswers.value.length
   const answeredQuestions = parsedAnswers.value.filter(a => a.selectedAnswer).length
-  const correctAnswers = parsedAnswers.value.filter(a => (a.isCorrect || isAnswerCorrectWithAI(a.questionNumber))).length
-  const incorrectAnswers = parsedAnswers.value.filter(a => !(a.isCorrect || isAnswerCorrectWithAI(a.questionNumber)) && a.selectedAnswer).length
+  const correctAnswers = parsedAnswers.value.filter(a => a.isCorrect).length
+  const incorrectAnswers = parsedAnswers.value.filter(a => !a.isCorrect && a.selectedAnswer).length
   const unansweredQuestions = totalQuestions - answeredQuestions
 
   return {
@@ -69,92 +58,20 @@ const performanceSummary = computed(() => {
   }
 })
 
-// AI synonym checking
-const performAISynonymChecking = async () => {
-  if (!props.student?.answers || !answerKeyData.value?.answer_keys?.questions) {
-    return
-  }
-
-  try {
-    isLoadingAI.value = true
-    const answerKeyQuestions = answerKeyData.value.answer_keys.questions
-
-    // Create a map of correct answers by question number
-    const correctAnswersMap = new Map<number, string>()
-    answerKeyQuestions.forEach((q: any) => {
-      correctAnswersMap.set(q.question_number, q.correct_answer)
-    })
-
-    // Prepare answer pairs
-    const answerPairs: Array<{
-      questionNumber: number;
-      studentAnswer: string;
-      correctAnswer: string;
-    }> = []
-
-    const studentAnswers = props.student.answers
-
-    if (typeof studentAnswers === 'object' && !Array.isArray(studentAnswers)) {
-      Object.entries(studentAnswers).forEach(([key, answer]) => {
-        const qNum = parseInt(key.replace(/\D/g, '')) || getQuestionNumber(key)
-        const correctAnswer = correctAnswersMap.get(qNum)
-        const studentAnswer = getAnswerValue(answer)
-        if (correctAnswer && studentAnswer && studentAnswer !== 'No Answer') {
-          answerPairs.push({
-            questionNumber: qNum,
-            studentAnswer,
-            correctAnswer
-          })
-        }
-      })
-    } else if (Array.isArray(studentAnswers)) {
-      studentAnswers.forEach((answer, index) => {
-        const qNum = answer?.questionNumber || index + 1
-        const correctAnswer = correctAnswersMap.get(qNum)
-        const studentAnswer = getAnswerValue(answer)
-        if (correctAnswer && studentAnswer && studentAnswer !== 'No Answer') {
-          answerPairs.push({
-            questionNumber: qNum,
-            studentAnswer,
-            correctAnswer
-          })
-        }
-      })
-    }
-
-    if (answerPairs.length === 0) return
-
-    const results = await batchCheckAnswersWithAI(answerPairs)
-    aiComparisons.value.clear()
-    results.forEach((result, questionNumber) => {
-      aiComparisons.value.set(questionNumber, {
-        areEquivalent: result.isCorrect,
-        confidence: result.confidence,
-        explanation: result.explanation
-      })
-    })
-  } catch (error) {
-    console.error('Error performing AI synonym checking:', error)
-  } finally {
-    isLoadingAI.value = false
-  }
-}
-
 const getQuestionNumber = (key: string): number => {
-  const num = key.match(/\d+/)
+  const num = key.match(/\\d+/)
   return num ? parseInt(num[0]) : 1
 }
 
-const getAIComparison = (questionNumber: number) => {
-  return aiComparisons.value.get(questionNumber)
-}
-
-const isAnswerCorrectWithAI = (questionNumber: number) => {
-  const aiResult = aiComparisons.value.get(questionNumber)
-  if (aiResult) {
-    return aiResult.areEquivalent
+const getAIComparison = (_questionNumber: number, answerObj?: any) => {
+  if (answerObj && typeof answerObj.aiExplanation === 'string') {
+    return {
+      areEquivalent: !!answerObj.isCorrect,
+      confidence: typeof answerObj.aiConfidence === 'number' ? answerObj.aiConfidence : undefined,
+      explanation: answerObj.aiExplanation
+    }
   }
-  return false
+  return undefined
 }
 
 // Get the correct answers for this student's quiz
@@ -213,15 +130,27 @@ const parsedAnswers = computed(() => {
       let correctAnswer = null
       let isCorrect = false
 
-      // Get correct answer
-      const correctAnswerValue = getCorrectAnswerForQuestion(questionNum, answerKeyData.value)
-      if (correctAnswerValue !== 'N/A') {
-        correctAnswer = { correct_answer: correctAnswerValue }
-        // Use AI comparison if available, otherwise exact match
-        const aiResult = aiComparisons.value.get(questionNum)
-        if (aiResult) {
-          isCorrect = aiResult.areEquivalent
-        } else {
+      // 1. Stored verdict from grading time (authoritative — identical to what
+      //    the student sees and what produced the stored score).
+      const hasStoredVerdict = typeof studentAnswer.isCorrect === 'boolean'
+      const storedCorrectText =
+        typeof studentAnswer.correctAnswerText === 'string' ? studentAnswer.correctAnswerText
+        : typeof studentAnswer.correctAnswer === 'string' ? studentAnswer.correctAnswer
+        : null
+
+      if (hasStoredVerdict) {
+        isCorrect = studentAnswer.isCorrect
+        const text = storedCorrectText ?? getCorrectAnswerForQuestion(questionNum, answerKeyData.value)
+        if (text && text !== 'N/A') {
+          correctAnswer = { correct_answer: text }
+        }
+      } else {
+        // Legacy records without a stored verdict: deterministic exact match
+        // (identical logic to the student view, no live AI — live AI is
+        // non-deterministic and made the two views disagree).
+        const correctAnswerValue = getCorrectAnswerForQuestion(questionNum, answerKeyData.value)
+        if (correctAnswerValue !== 'N/A') {
+          correctAnswer = { correct_answer: correctAnswerValue }
           const studentAnswerValue = getAnswerValue(studentAnswer)
           const correctStr = String(correctAnswerValue).toLowerCase().trim()
           const studentStr = String(studentAnswerValue).toLowerCase().trim()
@@ -234,7 +163,9 @@ const parsedAnswers = computed(() => {
         selectedAnswer: getAnswerValue(studentAnswer),
         questionNumber: questionNum,
         correctAnswer: correctAnswer,
-        isCorrect: isCorrect
+        isCorrect: isCorrect,
+        aiExplanation: studentAnswer.aiExplanation,
+        aiConfidence: studentAnswer.aiConfidence
       }
 
       return result
@@ -245,14 +176,6 @@ const parsedAnswers = computed(() => {
     return []
   }
 })
-
-// Watch for student changes
-watch(() => props.student, async (newStudent) => {
-  if (newStudent && props.modelValue) {
-    aiComparisons.value.clear()
-    await performAISynonymChecking()
-  }
-}, { immediate: true })
 
 // Methods
 const closeDialog = () => {
@@ -371,8 +294,8 @@ const closeDialog = () => {
                 class="answer-card"
                 :class="[
                   // Prioritize correctness over other states
-                  (answer.correctAnswer && (answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber))) ? 'border-success' :
-                  (answer.correctAnswer && !(answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber))) ? 'border-error' :
+                  (answer.correctAnswer && answer.isCorrect) ? 'border-success' :
+                  (answer.correctAnswer && !answer.isCorrect) ? 'border-error' :
                   getAnswerCardClass(answer)
                 ]"
               >
@@ -382,15 +305,15 @@ const closeDialog = () => {
                   </span>
                   <div class="d-flex align-center">
                     <!-- Correct/Incorrect indicator -->
-                    <v-tooltip v-if="answer.correctAnswer" :text="(answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'Correct Answer' : 'Incorrect Answer'">
+                    <v-tooltip v-if="answer.correctAnswer" :text="answer.isCorrect ? 'Correct Answer' : 'Incorrect Answer'">
                       <template #activator="{ props }">
                         <v-icon
                           v-bind="props"
-                          :color="(answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'green' : 'red'"
+                          :color="answer.isCorrect ? 'green' : 'red'"
                           size="20"
                           class="me-2"
                         >
-                          {{ (answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'mdi-check-circle' : 'mdi-close-circle' }}
+                          {{ answer.isCorrect ? 'mdi-check-circle' : 'mdi-close-circle' }}
                         </v-icon>
                       </template>
                     </v-tooltip>
@@ -411,7 +334,7 @@ const closeDialog = () => {
                   <div class="mb-2">
                     <div class="text-caption text-medium-emphasis mb-1">Student's Answer:</div>
                     <v-chip
-                      :color="answer.selectedAnswer ? ((answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'green' : 'red') : 'grey'"
+                      :color="answer.selectedAnswer ? (answer.isCorrect ? 'green' : 'red') : 'grey'"
                       size="small"
                       variant="elevated"
                     >
@@ -433,18 +356,18 @@ const closeDialog = () => {
 
                   <!-- AI Explanation (if available) -->
                   <div
-                    v-if="getAIComparison(answer.questionNumber)"
+                    v-if="getAIComparison(answer.questionNumber, answer)"
                     class="text-caption text-medium-emphasis mt-2"
                   >
                     <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
-                    {{ getAIComparison(answer.questionNumber)?.explanation }}
+                    {{ getAIComparison(answer.questionNumber, answer)?.explanation }}
                     <v-chip
-                      v-if="getAIComparison(answer.questionNumber)?.confidence !== undefined"
+                      v-if="getAIComparison(answer.questionNumber, answer)?.confidence !== undefined"
                       size="x-small"
                       variant="text"
                       class="ml-2"
                     >
-                      Confidence: {{ Math.round((getAIComparison(answer.questionNumber)?.confidence || 0) * 100) }}%
+                      Confidence: {{ Math.round((getAIComparison(answer.questionNumber, answer)?.confidence || 0) * 100) }}%
                     </v-chip>
                   </div>
 
