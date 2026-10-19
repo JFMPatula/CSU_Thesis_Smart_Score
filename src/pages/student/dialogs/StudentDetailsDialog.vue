@@ -66,7 +66,11 @@ const fetchAnswerKeyData = async () => {
 /**
  * Get correct answer from answer key data
  */
-const getCorrectAnswer = (questionNumber: string | number) => {
+const getCorrectAnswer = (questionNumber: string | number, answerObj?: any) => {
+  if (answerObj) {
+    const stored = answerObj.correctAnswerText || answerObj.correctAnswer;
+    if (typeof stored === 'string' && stored) return stored;
+  }
   return getCorrectAnswerForQuestion(questionNumber, answerKeyData.value);
 };
 
@@ -275,7 +279,7 @@ watch(() => props.modelValue, (isOpen) => {
                               size="small"
                               variant="tonal"
                             >
-                              Correct: {{ getCorrectAnswer(getQuestionNumber(questionKey)) }}
+                              Correct: {{ getCorrectAnswer(getQuestionNumber(questionKey), answer) }}
                             </v-chip>
                           </div>
                         </div>
@@ -342,7 +346,7 @@ watch(() => props.modelValue, (isOpen) => {
                               size="small"
                               variant="tonal"
                             >
-                              Correct: {{ getCorrectAnswer(answer?.questionNumber || index + 1) }}
+                              Correct: {{ getCorrectAnswer(answer?.questionNumber || index + 1, answer) }}
                             </v-chip>
                           </div>
                         </div>
