@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, watch, ref, onMounted } from 'vue'
 import type { Student } from '@/stores/studentsData'
 import { useAnswerKeysStore } from '@/stores/answerKeysData'
 import { getScoreColor, formatFullDate } from '@/pages/student/utils/helpers'
-import { getAnswerCardClass } from '@/pages/student/utils/getHelpers'
+import { getAnswerCardClass, getCorrectAnswerForQuestion, getAnswerValue, batchCheckAnswersWithAI } from '@/pages/student/utils/getHelpers'
 
 // Props
 interface Props {
@@ -26,10 +26,26 @@ const emit = defineEmits<{
 // Store
 const answerKeysStore = useAnswerKeysStore()
 
+// State for AI synonym checking
+const aiComparisons = ref<Map<number, {
+  areEquivalent: boolean;
+  confidence: number;
+  explanation: string;
+}>>(new Map())
+const isLoadingAI = ref(false)
+
+const answerKeyData = computed(() => {
+  if (!props.student?.answer_key_id) return null
+  return answerKeysStore.answerKeys.find(ak => ak.id === props.student?.answer_key_id)
+})
+
 // Ensure answer keys are loaded when dialog opens
-watch(() => props.modelValue, (isOpen) => {
-  if (isOpen && answerKeysStore.answerKeys.length === 0) {
-    answerKeysStore.fetchAnswerKeys()
+watch(() => props.modelValue, async (isOpen) => {
+  if (isOpen) {
+    if (answerKeysStore.answerKeys.length === 0) {
+      await answerKeysStore.fetchAnswerKeys()
+    }
+    await performAISynonymChecking()
   }
 })
 
@@ -39,8 +55,8 @@ const performanceSummary = computed(() => {
 
   const totalQuestions = parsedAnswers.value.length
   const answeredQuestions = parsedAnswers.value.filter(a => a.selectedAnswer).length
-  const correctAnswers = parsedAnswers.value.filter(a => a.isCorrect).length
-  const incorrectAnswers = parsedAnswers.value.filter(a => !a.isCorrect && a.selectedAnswer).length
+  const correctAnswers = parsedAnswers.value.filter(a => (a.isCorrect || isAnswerCorrectWithAI(a.questionNumber))).length
+  const incorrectAnswers = parsedAnswers.value.filter(a => !(a.isCorrect || isAnswerCorrectWithAI(a.questionNumber)) && a.selectedAnswer).length
   const unansweredQuestions = totalQuestions - answeredQuestions
 
   return {
@@ -53,26 +69,112 @@ const performanceSummary = computed(() => {
   }
 })
 
-// Get the correct answers for this student's quiz
-const correctAnswers = computed(() => {
-  if (!props.student?.answer_key_id) return null
-
-  const answerKey = answerKeysStore.answerKeys.find(ak => ak.id === props.student?.answer_key_id)
-  if (!answerKey?.answer_keys) {
-    return null
+// AI synonym checking
+const performAISynonymChecking = async () => {
+  if (!props.student?.answers || !answerKeyData.value?.answer_keys?.questions) {
+    return
   }
 
   try {
-    // Handle different formats of answer keys
-    if (Array.isArray(answerKey.answer_keys)) {
-      return answerKey.answer_keys
+    isLoadingAI.value = true
+    const answerKeyQuestions = answerKeyData.value.answer_keys.questions
+
+    // Create a map of correct answers by question number
+    const correctAnswersMap = new Map<number, string>()
+    answerKeyQuestions.forEach((q: any) => {
+      correctAnswersMap.set(q.question_number, q.correct_answer)
+    })
+
+    // Prepare answer pairs
+    const answerPairs: Array<{
+      questionNumber: number;
+      studentAnswer: string;
+      correctAnswer: string;
+    }> = []
+
+    const studentAnswers = props.student.answers
+
+    if (typeof studentAnswers === 'object' && !Array.isArray(studentAnswers)) {
+      Object.entries(studentAnswers).forEach(([key, answer]) => {
+        const qNum = parseInt(key.replace(/\D/g, '')) || getQuestionNumber(key)
+        const correctAnswer = correctAnswersMap.get(qNum)
+        const studentAnswer = getAnswerValue(answer)
+        if (correctAnswer && studentAnswer && studentAnswer !== 'No Answer') {
+          answerPairs.push({
+            questionNumber: qNum,
+            studentAnswer,
+            correctAnswer
+          })
+        }
+      })
+    } else if (Array.isArray(studentAnswers)) {
+      studentAnswers.forEach((answer, index) => {
+        const qNum = answer?.questionNumber || index + 1
+        const correctAnswer = correctAnswersMap.get(qNum)
+        const studentAnswer = getAnswerValue(answer)
+        if (correctAnswer && studentAnswer && studentAnswer !== 'No Answer') {
+          answerPairs.push({
+            questionNumber: qNum,
+            studentAnswer,
+            correctAnswer
+          })
+        }
+      })
     }
 
-    if (typeof answerKey.answer_keys === 'object') {
-      if ('answers' in answerKey.answer_keys) {
-        return answerKey.answer_keys.answers
+    if (answerPairs.length === 0) return
+
+    const results = await batchCheckAnswersWithAI(answerPairs)
+    aiComparisons.value.clear()
+    results.forEach((result, questionNumber) => {
+      aiComparisons.value.set(questionNumber, {
+        areEquivalent: result.isCorrect,
+        confidence: result.confidence,
+        explanation: result.explanation
+      })
+    })
+  } catch (error) {
+    console.error('Error performing AI synonym checking:', error)
+  } finally {
+    isLoadingAI.value = false
+  }
+}
+
+const getQuestionNumber = (key: string): number => {
+  const num = key.match(/\d+/)
+  return num ? parseInt(num[0]) : 1
+}
+
+const getAIComparison = (questionNumber: number) => {
+  return aiComparisons.value.get(questionNumber)
+}
+
+const isAnswerCorrectWithAI = (questionNumber: number) => {
+  const aiResult = aiComparisons.value.get(questionNumber)
+  if (aiResult) {
+    return aiResult.areEquivalent
+  }
+  return false
+}
+
+// Get the correct answers for this student's quiz
+const correctAnswers = computed(() => {
+  if (!answerKeyData.value?.answer_keys) return null
+
+  try {
+    // Handle different formats of answer keys
+    if (Array.isArray(answerKeyData.value.answer_keys)) {
+      return answerKeyData.value.answer_keys
+    }
+
+    if (typeof answerKeyData.value.answer_keys === 'object') {
+      if ('answers' in answerKeyData.value.answer_keys) {
+        return answerKeyData.value.answer_keys.answers
       }
-      return answerKey.answer_keys
+      if ('questions' in answerKeyData.value.answer_keys) {
+        return answerKeyData.value.answer_keys.questions
+      }
+      return answerKeyData.value.answer_keys
     }
 
     return null
@@ -99,7 +201,7 @@ const parsedAnswers = computed(() => {
       } else {
         // If it's a flat object with question keys, convert to array
         studentAnswers = Object.entries(props.student.answers).map(([key, value]: [string, any]) => ({
-          questionNumber: parseInt(key.replace(/\D/g, '')) || key,
+          questionNumber: parseInt(key.replace(/\D/g, '')) || getQuestionNumber(key),
           ...value
         }))
       }
@@ -111,57 +213,28 @@ const parsedAnswers = computed(() => {
       let correctAnswer = null
       let isCorrect = false
 
-      if (correctAnswers.value) {
-        // Handle different correct answers data structures
-        let correctAnswersData = correctAnswers.value
-
-        // If it's an object with a 'questions' property (from AI processing)
-        if (typeof correctAnswers.value === 'object' && 'questions' in correctAnswers.value) {
-          correctAnswersData = correctAnswers.value.questions
-        }
-
-        if (Array.isArray(correctAnswersData)) {
-          // Try different ways to match the question
-          correctAnswer = correctAnswersData.find(ca =>
-            ca.question_number === questionNum ||
-            ca.questionNumber === questionNum ||
-            ca.question === questionNum ||
-            (ca.question_number === questionNum) ||
-            (parseInt(ca.question_number) === questionNum)
-          )
-        } else if (typeof correctAnswersData === 'object') {
-          correctAnswer = correctAnswersData[questionNum] || correctAnswersData[`question_${questionNum}`] || correctAnswersData[`q${questionNum}`]
-        }
-
-        if (correctAnswer) {
-          const correctAnswerValue = correctAnswer.correct_answer || correctAnswer.correctAnswer || correctAnswer.answer || correctAnswer.selected || correctAnswer
-          const studentAnswerValue = studentAnswer.selectedAnswer || studentAnswer.answer || studentAnswer.selected || studentAnswer
-
-          // More robust comparison handling
-          if (correctAnswerValue && studentAnswerValue) {
-            const correctStr = String(correctAnswerValue).toLowerCase().trim()
-            const studentStr = String(studentAnswerValue).toLowerCase().trim()
-            isCorrect = correctStr === studentStr
-
-            // Temporary debug for yellow icon issue - expanded to see more
-            console.log(`Q${questionNum}: Student="${studentStr}" vs Correct="${correctStr}" = ${isCorrect}`)
-            console.log(`Q${questionNum}: correctAnswer object:`, correctAnswer)
-            console.log(`Q${questionNum}: studentAnswer object:`, studentAnswer)
-          }
+      // Get correct answer
+      const correctAnswerValue = getCorrectAnswerForQuestion(questionNum, answerKeyData.value)
+      if (correctAnswerValue !== 'N/A') {
+        correctAnswer = { correct_answer: correctAnswerValue }
+        // Use AI comparison if available, otherwise exact match
+        const aiResult = aiComparisons.value.get(questionNum)
+        if (aiResult) {
+          isCorrect = aiResult.areEquivalent
+        } else {
+          const studentAnswerValue = getAnswerValue(studentAnswer)
+          const correctStr = String(correctAnswerValue).toLowerCase().trim()
+          const studentStr = String(studentAnswerValue).toLowerCase().trim()
+          isCorrect = correctStr === studentStr
         }
       }
 
       const result = {
         ...studentAnswer,
+        selectedAnswer: getAnswerValue(studentAnswer),
         questionNumber: questionNum,
         correctAnswer: correctAnswer,
         isCorrect: isCorrect
-      }
-
-      // Debug the final result for first few questions
-      if (questionNum <= 5) {
-        console.log(`Final Q${questionNum} result:`, result)
-        console.log(`Has correctAnswer: ${!!result.correctAnswer}, isCorrect: ${result.isCorrect}`)
       }
 
       return result
@@ -172,6 +245,14 @@ const parsedAnswers = computed(() => {
     return []
   }
 })
+
+// Watch for student changes
+watch(() => props.student, async (newStudent) => {
+  if (newStudent && props.modelValue) {
+    aiComparisons.value.clear()
+    await performAISynonymChecking()
+  }
+}, { immediate: true })
 
 // Methods
 const closeDialog = () => {
@@ -290,27 +371,26 @@ const closeDialog = () => {
                 class="answer-card"
                 :class="[
                   // Prioritize correctness over other states
-                  answer.correctAnswer && answer.isCorrect ? 'border-success' :
-                  answer.correctAnswer && !answer.isCorrect ? 'border-error' :
+                  (answer.correctAnswer && (answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber))) ? 'border-success' :
+                  (answer.correctAnswer && !(answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber))) ? 'border-error' :
                   getAnswerCardClass(answer)
                 ]"
               >
                 <v-card-title class="d-flex align-center justify-space-between pa-3">
                   <span class="text-subtitle-1">Question {{ answer.questionNumber || (Number(index) + 1) }}
-                    <!-- Temporary debug -->
-                    <small class="text-caption ml-2">[{{ answer.isCorrect ? 'CORRECT' : 'INCORRECT' }}]</small>
+  
                   </span>
                   <div class="d-flex align-center">
                     <!-- Correct/Incorrect indicator -->
-                    <v-tooltip v-if="answer.correctAnswer" :text="answer.isCorrect ? 'Correct Answer' : 'Incorrect Answer'">
+                    <v-tooltip v-if="answer.correctAnswer" :text="(answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'Correct Answer' : 'Incorrect Answer'">
                       <template #activator="{ props }">
                         <v-icon
                           v-bind="props"
-                          :color="answer.isCorrect ? 'green' : 'red'"
+                          :color="(answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'green' : 'red'"
                           size="20"
                           class="me-2"
                         >
-                          {{ answer.isCorrect ? 'mdi-check-circle' : 'mdi-close-circle' }}
+                          {{ (answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'mdi-check-circle' : 'mdi-close-circle' }}
                         </v-icon>
                       </template>
                     </v-tooltip>
@@ -331,7 +411,7 @@ const closeDialog = () => {
                   <div class="mb-2">
                     <div class="text-caption text-medium-emphasis mb-1">Student's Answer:</div>
                     <v-chip
-                      :color="answer.selectedAnswer ? (answer.isCorrect ? 'green' : 'red') : 'grey'"
+                      :color="answer.selectedAnswer ? ((answer.isCorrect || isAnswerCorrectWithAI(answer.questionNumber)) ? 'green' : 'red') : 'grey'"
                       size="small"
                       variant="elevated"
                     >
@@ -348,6 +428,23 @@ const closeDialog = () => {
                       variant="outlined"
                     >
                       {{ answer.correctAnswer.correct_answer || answer.correctAnswer.correctAnswer || answer.correctAnswer.answer || answer.correctAnswer }}
+                    </v-chip>
+                  </div>
+
+                  <!-- AI Explanation (if available) -->
+                  <div
+                    v-if="getAIComparison(answer.questionNumber)"
+                    class="text-caption text-medium-emphasis mt-2"
+                  >
+                    <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
+                    {{ getAIComparison(answer.questionNumber)?.explanation }}
+                    <v-chip
+                      v-if="getAIComparison(answer.questionNumber)?.confidence !== undefined"
+                      size="x-small"
+                      variant="text"
+                      class="ml-2"
+                    >
+                      Confidence: {{ Math.round((getAIComparison(answer.questionNumber)?.confidence || 0) * 100) }}%
                     </v-chip>
                   </div>
 
