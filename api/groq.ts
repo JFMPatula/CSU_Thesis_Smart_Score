@@ -1,4 +1,4 @@
-import { applyRateLimit, getCaller, parseBody } from './_lib/http'
+import { applyRateLimit, getCaller, parseBody } from './_lib/http.js'
 
 const DEFAULT_MODEL = 'openai/gpt-oss-120b'
 const ALLOWED_ROLES = new Set(['system', 'user', 'assistant'])

@@ -6,7 +6,7 @@ import {
   parseBody,
   roleIdOf,
   validatePassword,
-} from './_lib/http'
+} from './_lib/http.js'
 
 export default async function handler(req: any, res: any) {
   if (!applyRateLimit(req, res, 60, 60_000)) return

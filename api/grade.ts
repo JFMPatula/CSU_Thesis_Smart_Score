@@ -1,4 +1,4 @@
-import { applyRateLimit, getAdminClient, parseBody } from './_lib/http'
+import { applyRateLimit, getAdminClient, parseBody } from './_lib/http.js'
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_MODEL = process.env.GROQ_GRADING_MODEL || 'openai/gpt-oss-120b'

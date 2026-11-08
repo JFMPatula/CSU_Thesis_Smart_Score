@@ -1,4 +1,4 @@
-import { applyRateLimit, getCaller, parseBody } from './_lib/http'
+import { applyRateLimit, getCaller, parseBody } from './_lib/http.js'
 
 const DEFAULT_PROMPT =
   'Transcribe all visible text from this image exactly as written, preserving line breaks and the layout of questions and answers. Output only the transcribed text.'

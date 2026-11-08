@@ -1,4 +1,4 @@
-import { applyRateLimit, getAdminClient } from './_lib/http'
+import { applyRateLimit, getAdminClient } from './_lib/http.js'
 
 const ALLOWED_BUCKETS = new Set(['answer_keys', 'student-answers', 'announcements'])
 const DEFAULT_EXPIRES = 3600
