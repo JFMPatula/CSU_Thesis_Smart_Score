@@ -60,21 +60,6 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  const { data: role, error: roleError } = await admin
-    .from('roles')
-    .select('id,title')
-    .eq('id', roleId)
-    .maybeSingle()
-
-  if (roleError) {
-    res.status(400).json({ error: roleError.message })
-    return
-  }
-  if (!role || role.id === 1 || String(role.title || '').toLowerCase() === 'admin') {
-    res.status(400).json({ error: 'This role cannot be self-assigned' })
-    return
-  }
-
   const { data, error } = await admin.auth.admin.createUser({
     email,
     password: body.password,
