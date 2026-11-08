@@ -1,4 +1,4 @@
-import { applyRateLimit, getCaller, parseBody } from './_lib/http.js'
+import { applyRateLimit, getCaller, parseBody, roleIdOf } from './_lib/http.js'
 
 const DEFAULT_PROMPT =
   'Transcribe all visible text from this image exactly as written, preserving line breaks and the layout of questions and answers. Output only the transcribed text.'
@@ -16,6 +16,12 @@ export default async function handler(req: any, res: any) {
   const caller = await getCaller(req)
   if ('error' in caller) {
     res.status(caller.status).json({ error: caller.error, text: null })
+    return
+  }
+
+  const callerRole = roleIdOf(caller.user)
+  if (callerRole !== 1 && callerRole !== 2) {
+    res.status(403).json({ error: 'Teacher or Admin access required', text: null })
     return
   }
 

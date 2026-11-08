@@ -24,6 +24,23 @@ export default async function handler(req: any, res: any) {
   const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : ''
   const roleId = Number(body.roleId)
 
+  // Only Student role can be self-assigned during signup
+  const { data: role, error: roleError } = await admin
+    .from('roles')
+    .select('id,title')
+    .eq('id', roleId)
+    .maybeSingle()
+
+  if (roleError || !role) {
+    res.status(400).json({ error: 'Invalid role' })
+    return
+  }
+
+  if (role.id === 1 || String(role.title || '').toLowerCase() === 'admin' || String(role.title || '').toLowerCase() === 'teacher') {
+    res.status(400).json({ error: 'This role cannot be self-assigned. Teacher accounts require admin approval.' })
+    return
+  }
+
   const emailError = validateEmail(email)
   if (emailError) {
     res.status(400).json({ error: emailError })
@@ -61,7 +78,7 @@ export default async function handler(req: any, res: any) {
   const { data, error } = await admin.auth.admin.createUser({
     email,
     password: body.password,
-    email_confirm: true,
+    email_confirm: false,
     user_metadata: { full_name: fullName },
     app_metadata: { role: roleId },
   })

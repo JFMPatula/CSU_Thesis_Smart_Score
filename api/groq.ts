@@ -1,4 +1,4 @@
-import { applyRateLimit, getCaller, parseBody } from './_lib/http.js'
+import { applyRateLimit, getCaller, parseBody, roleIdOf } from './_lib/http.js'
 
 const DEFAULT_MODEL = 'openai/gpt-oss-120b'
 const ALLOWED_ROLES = new Set(['system', 'user', 'assistant'])
@@ -27,6 +27,12 @@ export default async function handler(req: any, res: any) {
     return
   }
 
+  const callerRole = roleIdOf(caller.user)
+  if (callerRole !== 1 && callerRole !== 2) {
+    res.status(403).json({ error: 'Teacher or Admin access required' })
+    return
+  }
+
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) {
     res.status(503).json({ error: 'Groq is not configured' })
@@ -41,15 +47,22 @@ export default async function handler(req: any, res: any) {
   }
 
   let totalChars = 0
-  const safeMessages = messages.map((message: any) => {
-    const role = String(message?.role || '')
-    const content = typeof message?.content === 'string' ? message.content : ''
-    if (!ALLOWED_ROLES.has(role) || content.length === 0) {
-      throw new Error('Invalid message format')
+  const safeMessages: Array<{ role: string; content: string }> = []
+  try {
+    for (const message of messages) {
+      const role = String(message?.role || '')
+      const content = typeof message?.content === 'string' ? message.content : ''
+      if (!ALLOWED_ROLES.has(role) || content.length === 0) {
+        res.status(400).json({ error: 'Invalid message format' })
+        return
+      }
+      totalChars += content.length
+      safeMessages.push({ role, content })
     }
-    totalChars += content.length
-    return { role, content }
-  })
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Invalid message format' })
+    return
+  }
 
   if (totalChars > MAX_CONTENT_CHARS) {
     res.status(413).json({ error: 'Request is too large' })

@@ -119,9 +119,9 @@ select
   title,
   description,
   qr_link,
-  is_active,
-  answer_images
-from public.answer_keys;
+  is_active
+from public.answer_keys
+where is_active = true;
 
 revoke all on public.answer_keys_public from public;
 grant select on public.answer_keys_public to anon, authenticated;
@@ -140,7 +140,7 @@ create policy "Teachers manage students"
   using (public.is_teacher_or_admin())
   with check (public.is_teacher_or_admin());
 
-create or replace function public.search_student_records(p_answer_key_id integer, p_query text)
+create or replace function public.search_student_records(p_answer_key_id integer, p_student_id text, p_fullname text)
 returns table (
   id integer,
   created_at timestamptz,
@@ -169,16 +169,14 @@ as $$
     s.answers
   from public.students s
   where s.answer_key_id = p_answer_key_id
-    and (
-      lower(s.student_id) = lower(trim(p_query))
-      or lower(s.fullname) = lower(trim(p_query))
-    )
+    and lower(s.student_id) = lower(trim(p_student_id))
+    and lower(s.fullname) = lower(trim(p_fullname))
   order by s.created_at desc
   limit 20
 $$;
 
-revoke all on function public.search_student_records(integer, text) from public;
-grant execute on function public.search_student_records(integer, text) to anon, authenticated;
+revoke all on function public.search_student_records(integer, text, text) from public;
+grant execute on function public.search_student_records(integer, text, text) to authenticated;
 
 -- ----------------------------
 -- Announcements (anon sees published items only)
@@ -227,9 +225,9 @@ create policy "Teachers manage answer_keys objects"
   using (bucket_id = 'answer_keys' and public.is_teacher_or_admin())
   with check (bucket_id = 'answer_keys' and public.is_teacher_or_admin());
 
-create policy "Anon upload student-answers objects"
+create policy "Students upload student-answers objects"
   on storage.objects for insert
-  to anon
+  to authenticated
   with check (bucket_id = 'student-answers');
 
 create policy "Teachers manage student-answers objects"
@@ -275,3 +273,46 @@ set image_url = regexp_replace(
   '/api/signed-url?bucket=\1&path=\2'
 )
 where image_url ~ '/storage/v1/object/public/';
+
+-- ----------------------------
+-- Unique constraint: one submission per student per answer key
+-- ----------------------------
+alter table public.students
+  add constraint students_student_id_answer_key_id_unique unique (student_id, answer_key_id);
+
+-- ----------------------------
+-- Ownership rules for answer_keys (created_by = auth.uid())
+-- ----------------------------
+drop policy if exists "Authenticated read answer_keys" on public.answer_keys;
+drop policy if exists "Authenticated manage answer_keys" on public.answer_keys;
+
+create policy "Authenticated read answer_keys"
+  on public.answer_keys for select
+  to authenticated
+  using (public.is_teacher_or_admin() or created_by = auth.uid());
+
+create policy "Authenticated manage answer_keys"
+  on public.answer_keys for all
+
+-- ----------------------------
+-- Unique constraint: one submission per student per answer key
+-- ----------------------------
+alter table public.students
+  add constraint students_student_id_answer_key_id_unique unique (student_id, answer_key_id);
+
+-- ----------------------------
+-- Ownership rules for answer_keys (created_by = auth.uid())
+-- ----------------------------
+drop policy if exists "Authenticated read answer_keys" on public.answer_keys;
+drop policy if exists "Authenticated manage answer_keys" on public.answer_keys;
+
+create policy "Authenticated read answer_keys"
+  on public.answer_keys for select
+  to authenticated
+  using (public.is_teacher_or_admin() or created_by = auth.uid());
+
+create policy "Authenticated manage answer_keys"
+  on public.answer_keys for all
+  to authenticated
+  using (public.is_teacher_or_admin() or created_by = auth.uid())
+  with check (public.is_teacher_or_admin() or created_by = auth.uid());
