@@ -74,9 +74,7 @@ const closeDialog = () => {
               <v-chip :color="getRoleColor(user.role_id)" variant="tonal" size="small">
                 {{ userRoleTitle }}
               </v-chip>
-              <div class="text-caption text-grey mt-1">
-                Debug: role_id={{ user.role_id }}, metadata_role={{ user.user_metadata?.role }}
-              </div>
+
             </v-list-item-subtitle>
           </v-list-item>
 

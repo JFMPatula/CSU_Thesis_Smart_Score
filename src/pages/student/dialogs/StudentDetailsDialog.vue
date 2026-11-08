@@ -41,8 +41,7 @@ const fetchAnswerKeyData = async () => {
 
   try {
     isLoading.value = true;
-    console.log('Fetching answer key data for ID:', props.student.answer_key_id);
-    const { data, error } = await answerKeysStore.fetchAnswerKeyById(props.student.answer_key_id);
+    const { data, error } = await answerKeysStore.fetchPublicAnswerKeyById(props.student.answer_key_id);
 
     if (error) {
       console.error('Error fetching answer key:', error);
@@ -51,10 +50,6 @@ const fetchAnswerKeyData = async () => {
 
     if (data) {
       answerKeyData.value = data;
-      console.log('Answer key data loaded successfully:', data);
-      console.log('Answer keys structure:', data.answer_keys);
-    } else {
-      console.warn('No answer key data returned');
     }
   } catch (error) {
     console.error('Error fetching answer key data:', error);

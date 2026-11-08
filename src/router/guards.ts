@@ -17,7 +17,7 @@ export const useUserPermissions = () => {
   const error = ref<string | null>(null)
 
   // Get current user's role ID
-  const userRoleId = computed(() => authStore.userData?.role_id || authStore.userData?.user_metadata?.role)
+  const userRoleId = computed(() => authStore.userData?.role_id || authStore.userData?.app_metadata?.role)
 
   // Fetch accessible pages for the current user's role
   const fetchUserAccessiblePages = async () => {
@@ -148,44 +148,34 @@ export const authGuard = async (to: RouteLocationNormalized, from: RouteLocation
       // Get current user data to access role ID from metadata
       const currentUserResult = await authStore.getCurrentUser();
 
-      if (currentUserResult.user) {
-        const userRoleId = currentUserResult.user.user_metadata?.role;
+      if (!currentUserResult.user) {
+        return next("/forbidden");
+      }
 
-        if (userRoleId) {
-          console.log('Checking page access for role ID:', userRoleId);
-          console.log('Requested path:', to.path);
+      const userRoleId = currentUserResult.user.app_metadata?.role;
 
-          // Fetch pages accessible by this role
-          const rolePages = await pagesStore.fetchRolePagesByRoleId(userRoleId);
+      if (!userRoleId) {
+        return next("/forbidden");
+      }
 
-          if (rolePages && rolePages.length > 0) {
-            // Determine required permissions for the requested path
-            const requiredPermissions = getPermissionForRoute(to.path)
-            const allowedPages = rolePages.map(rolePage => rolePage.pages).filter(Boolean) as string[]
-            const isPageAllowed = requiredPermissions.length === 0 || requiredPermissions.some(permission => allowedPages.includes(permission))
+      // Fetch pages accessible by this role
+      const rolePages = await pagesStore.fetchRolePagesByRoleId(userRoleId);
 
-            console.log('Allowed pages for role:', allowedPages);
-            console.log('Required permissions for path:', requiredPermissions);
-            console.log('Is page allowed:', isPageAllowed);
+      if (!rolePages || rolePages.length === 0) {
+        return next("/forbidden");
+      }
 
-            if (!isPageAllowed) {
-              console.log('Access denied for path:', to.path, 'Role ID:', userRoleId);
-              return next("/forbidden"); // Redirect to forbidden page if access denied
-            }
-          } else {
-            // No pages defined for this role - redirect to forbidden page
-            console.log('No pages configured for role ID:', userRoleId);
-            return next("/forbidden");
-          }
-        } else {
-          console.log('No role ID found in user metadata - denying access to protected pages');
-          // If no role ID (null or undefined), deny access to protected pages
-          return next("/forbidden");
-        }
+      // Determine required permissions for the requested path
+      const requiredPermissions = getPermissionForRoute(to.path)
+      const allowedPages = rolePages.map(rolePage => rolePage.pages).filter(Boolean) as string[]
+      const isPageAllowed = requiredPermissions.length === 0 || requiredPermissions.some(permission => allowedPages.includes(permission))
+
+      if (!isPageAllowed) {
+        return next("/forbidden");
       }
     } catch (error) {
       console.error('Error checking role-based page access:', error);
-      // Continue with navigation if there's an error to avoid blocking the user
+      return next("/forbidden");
     }
   }
 

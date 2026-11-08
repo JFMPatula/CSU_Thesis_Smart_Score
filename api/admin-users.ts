@@ -1,34 +1,27 @@
-import { createClient } from '@supabase/supabase-js'
-
-// Server-only configuration. These must NOT be prefixed with VITE_ so they are
-// never inlined into the client bundle.
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-const isAdminRole = (role: unknown) => role === 1 || role === '1'
+import {
+  applyRateLimit,
+  getAdminClient,
+  getBearerToken,
+  isAdminUser,
+  parseBody,
+  roleIdOf,
+  validatePassword,
+} from './_lib/http'
 
 export default async function handler(req: any, res: any) {
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  if (!applyRateLimit(req, res, 60, 60_000)) return
+
+  const admin = getAdminClient()
+  if (!admin) {
     res.status(500).json({ error: 'Server is not configured' })
     return
   }
 
-  const authHeader = req.headers['authorization'] || req.headers['Authorization']
-  const token =
-    typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : null
-
+  const token = getBearerToken(req)
   if (!token) {
     res.status(401).json({ error: 'Missing authorization token' })
     return
   }
-
-  // One client with the service role key, used both to verify the caller's
-  // token and to perform the privileged admin operation.
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
 
   const { data: callerData, error: callerError } = await admin.auth.getUser(token)
   if (callerError || !callerData?.user) {
@@ -37,7 +30,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const caller = callerData.user
-  const isAdmin = isAdminRole(caller.user_metadata?.role)
+  const isAdmin = isAdminUser(caller)
   const id = typeof req.query.id === 'string' ? req.query.id : undefined
 
   try {
@@ -46,12 +39,25 @@ export default async function handler(req: any, res: any) {
         res.status(403).json({ error: 'Admin access required' })
         return
       }
-      const { data, error } = await admin.auth.admin.listUsers()
+      const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1)
+      const perPageRaw = Number.parseInt(String(req.query.perPage || '50'), 10) || 50
+      const perPage = Math.min(1000, Math.max(1, perPageRaw))
+
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
       if (error) {
         res.status(400).json({ error: error.message })
         return
       }
-      res.status(200).json({ users: data.users })
+      res.status(200).json({
+        users: data.users,
+        pagination: {
+          page,
+          perPage,
+          total: data.total,
+          nextPage: data.nextPage,
+          lastPage: data.lastPage,
+        },
+      })
       return
     }
 
@@ -74,27 +80,64 @@ export default async function handler(req: any, res: any) {
     }
 
     if (req.method === 'PATCH' || req.method === 'PUT') {
-      // Admins may update anyone; users may update only their own account.
-      if (!isAdmin && caller.id !== id) {
-        res.status(403).json({ error: 'Not allowed to update this user' })
-        return
-      }
       if (!id) {
         res.status(400).json({ error: 'Missing user id' })
         return
       }
+      if (!isAdmin && caller.id !== id) {
+        res.status(403).json({ error: 'Not allowed to update this user' })
+        return
+      }
 
-      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {}
+      const body = parseBody(req)
       const updates: Record<string, any> = {}
-      if (body.email) updates.email = body.email
-      if (body.password) updates.password = body.password
-      if (body.phone) updates.phone = body.phone
-      if (body.user_metadata && typeof body.user_metadata === 'object') {
-        updates.user_metadata = { ...body.user_metadata }
-        // Never let a non-admin grant/change roles (prevents privilege escalation).
-        if (!isAdmin) {
-          delete updates.user_metadata.role
+
+      if (body.email !== undefined) updates.email = body.email
+      if (body.phone !== undefined) updates.phone = body.phone
+
+      if (body.password !== undefined) {
+        const passwordError = validatePassword(body.password)
+        if (passwordError) {
+          res.status(400).json({ error: passwordError })
+          return
         }
+        updates.password = body.password
+      }
+
+      if (body.user_metadata && typeof body.user_metadata === 'object') {
+        const metadata = { ...body.user_metadata }
+        delete metadata.role
+        updates.user_metadata = metadata
+      }
+
+      if (body.app_metadata && typeof body.app_metadata === 'object') {
+        if (!isAdmin) {
+          res.status(403).json({ error: 'Only admins may change app metadata' })
+          return
+        }
+        const { data: targetData, error: targetError } = await admin.auth.admin.getUserById(id)
+        if (targetError || !targetData?.user) {
+          res.status(404).json({ error: 'User not found' })
+          return
+        }
+        const appMetadata = {
+          ...(targetData.user.app_metadata || {}),
+          ...body.app_metadata,
+        }
+        if (appMetadata.role !== undefined) {
+          const roleId = Number(appMetadata.role)
+          if (!Number.isInteger(roleId) || roleId <= 0) {
+            res.status(400).json({ error: 'Invalid role' })
+            return
+          }
+          appMetadata.role = roleId
+        }
+        updates.app_metadata = appMetadata
+      }
+
+      if (Object.keys(updates).length === 0) {
+        res.status(400).json({ error: 'No supported fields to update' })
+        return
       }
 
       const { data, error } = await admin.auth.admin.updateUserById(id, updates)
@@ -102,7 +145,10 @@ export default async function handler(req: any, res: any) {
         res.status(400).json({ error: error.message })
         return
       }
-      res.status(200).json({ user: data.user })
+      res.status(200).json({
+        user: data.user,
+        role: roleIdOf(data.user),
+      })
       return
     }
 

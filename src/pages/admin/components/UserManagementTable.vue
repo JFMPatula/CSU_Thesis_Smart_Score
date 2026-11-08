@@ -40,6 +40,9 @@ const editingUser = ref<User | null>(null)
 const studentEventStatusMap = ref<Record<string, any[]>>({}) // userId -> events array
 const deleteDialog = ref(false)
 const userToDelete = ref<User | null>(null)
+const page = ref(1)
+const perPage = ref(50)
+const pagination = ref<{ page: number; perPage: number; total?: number; nextPage?: number | null; lastPage?: number | null } | null>(null)
 
 
 
@@ -58,10 +61,10 @@ const filteredUsers = computed(() => {
 })
 
 // Methods
-const fetchUsers = async () => {
+const fetchUsers = async (targetPage = page.value) => {
   loading.value = true
   try {
-    const result = await authStore.getAllUsers()
+    const result = await authStore.getAllUsers(targetPage, perPage.value)
 
     if (result.error) {
       toast.error('Failed to fetch users: ' + getErrorMessage(result.error))
@@ -69,10 +72,8 @@ const fetchUsers = async () => {
       return
     }
 
-    // Users are now stored in authStore.users reactively
-    if (result.users) {
-      // toast.success(`Loaded ${result.users.length} users`)
-    }
+    page.value = targetPage
+    pagination.value = result.pagination || null
   } catch (error) {
     toast.error('An unexpected error occurred while fetching users')
     console.error('Unexpected error:', error)
@@ -256,6 +257,15 @@ onMounted(async () => {
           </v-card>
         </v-col>
       </v-row>
+
+      <div v-if="pagination && ((pagination.total || 0) > perPage || page > 1)" class="d-flex justify-center mt-4">
+        <v-pagination
+          :model-value="page"
+          :length="pagination.lastPage || Math.max(1, Math.ceil((pagination.total || 0) / perPage))"
+          :total-visible="7"
+          @update:model-value="fetchUsers"
+        />
+      </div>
     </v-card-text>
 
     <!-- User Details Dialog -->

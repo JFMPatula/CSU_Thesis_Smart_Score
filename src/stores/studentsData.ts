@@ -128,6 +128,30 @@ export const useStudentsStore = defineStore('studentsData', () => {
     };
 
     /**
+     * Search student records by exact student id or full name (public RPC)
+     */
+    const searchStudentRecords = async (answerKeyId: number, query: string) => {
+        loading.value = true;
+        error.value = null;
+
+        try {
+            const { data, error: searchError } = await supabase.rpc('search_student_records', {
+                p_answer_key_id: answerKeyId,
+                p_query: query,
+            });
+
+            if (searchError) throw searchError;
+
+            return { data: (data || []) as Student[], error: null };
+        } catch (err) {
+            error.value = err instanceof Error ? err.message : 'Failed to search student records';
+            return { data: null, error: error.value };
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    /**
      * Fetch a single student by ID
      */
     const fetchStudentById = async (id: number) => {
@@ -343,6 +367,7 @@ export const useStudentsStore = defineStore('studentsData', () => {
         // Actions
         fetchStudents,
         fetchStudentsByAnswerKey,
+        searchStudentRecords,
         fetchStudentById,
         createStudent,
         updateStudent,

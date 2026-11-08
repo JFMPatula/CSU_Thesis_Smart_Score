@@ -3,6 +3,7 @@
 // unavailable (e.g. local dev) or when no GEMINI_API_KEY is configured.
 
 import { normalizeImageSource, prepareImageSourceForOcr, prepareImageSourceForVision } from './ocrImage';
+import { supabase } from './supabase';
 
 export interface TranscribeResult {
   text: string;
@@ -34,9 +35,16 @@ async function visionTranscribe(source: File | Blob | string, prompt?: string): 
   if (!prepared) return null;
 
   try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return null;
+
     const res = await fetch('/api/vision', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         image: prepared.base64,
         mimeType: prepared.mimeType,

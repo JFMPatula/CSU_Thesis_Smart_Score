@@ -61,11 +61,13 @@ const searchStudents = async () => {
     isSearching.value = true;
     hasSearched.value = true;
 
-    // Fetch students for this quiz/answer key
-    const { data, error } = await studentsStore.fetchStudentsByAnswerKey(props.answerKeyId);
+    const { data, error } = await studentsStore.searchStudentRecords(
+      props.answerKeyId,
+      searchQuery.value
+    );
 
     if (error) {
-      console.error('Error fetching students:', error);
+      console.error('Error searching students:', error);
       searchResults.value = [];
       return;
     }

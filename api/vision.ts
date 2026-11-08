@@ -1,14 +1,21 @@
-// Serverless proxy for image transcription using Google's Gemini vision model.
-// The GEMINI_API_KEY stays server-side and is never shipped to the browser.
+import { applyRateLimit, getCaller, parseBody } from './_lib/http'
 
 const DEFAULT_PROMPT =
   'Transcribe all visible text from this image exactly as written, preserving line breaks and the layout of questions and answers. Output only the transcribed text.'
 
 const MAX_IMAGE_BYTES = 4_000_000
+const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed', text: null })
+    return
+  }
+  if (!applyRateLimit(req, res, 20, 60_000)) return
+
+  const caller = await getCaller(req)
+  if ('error' in caller) {
+    res.status(caller.status).json({ error: caller.error, text: null })
     return
   }
 
@@ -18,16 +25,24 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  const { image, mimeType = 'image/jpeg', prompt } = req.body || {}
+  const { image, mimeType = 'image/jpeg', prompt } = parseBody(req)
   if (typeof image !== 'string' || image.length === 0) {
     res.status(400).json({ error: 'Missing image data', text: null })
+    return
+  }
+  if (typeof mimeType !== 'string' || !ALLOWED_MIME_TYPES.has(mimeType)) {
+    res.status(415).json({ error: 'Unsupported image type', text: null })
+    return
+  }
+  if (typeof prompt === 'string' && prompt.length > 2000) {
+    res.status(400).json({ error: 'Prompt is too long', text: null })
     return
   }
 
   let imageBytes: number
   try {
     imageBytes = Buffer.from(image, 'base64').length
-  } catch (e) {
+  } catch {
     res.status(400).json({ error: 'Invalid base64 image', text: null })
     return
   }
@@ -37,28 +52,31 @@ export default async function handler(req: any, res: any) {
   }
 
   const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
 
   const payload = {
     contents: [
       {
         parts: [
           { inline_data: { mime_type: mimeType, data: image } },
-          { text: typeof prompt === 'string' && prompt.trim() ? prompt : DEFAULT_PROMPT }
-        ]
-      }
+          { text: typeof prompt === 'string' && prompt.trim() ? prompt : DEFAULT_PROMPT },
+        ],
+      },
     ],
     generationConfig: {
       temperature: 0.1,
-      responseMimeType: 'text/plain'
-    }
+      responseMimeType: 'text/plain',
+    },
   }
 
   try {
     const resp = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(payload),
     })
 
     const json = await resp.json().catch(() => null)
@@ -68,17 +86,16 @@ export default async function handler(req: any, res: any) {
       return
     }
 
-    // Gemini 2.x may include "thought" parts; only keep the actual text.
     const text =
       json?.candidates?.[0]?.content?.parts
-        ?.filter((p: any) => !p.thought)
-        .map((p: any) => p?.text || '')
+        ?.filter((part: any) => !part.thought)
+        .map((part: any) => part?.text || '')
         .join('')
         .trim() || ''
 
     res.status(200).json({ ok: true, text })
-  } catch (e: any) {
-    console.error('Vision endpoint error:', e)
-    res.status(500).json({ error: String(e?.message || e), text: null })
+  } catch (err: any) {
+    console.error('Vision endpoint error:', err)
+    res.status(500).json({ error: String(err?.message || err), text: null })
   }
 }

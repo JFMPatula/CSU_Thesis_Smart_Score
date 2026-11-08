@@ -167,7 +167,7 @@
                   <div class="hero-image-side">
                     <div class="hero-image-container">
                       <v-img
-                        src="/assets/hero.jpg"
+                        src="/assets/hero.webp"
                         alt="CSU-SmartScore Professional"
                         class="hero-image"
                         cover

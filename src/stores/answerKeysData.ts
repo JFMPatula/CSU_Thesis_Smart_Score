@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
-import { ref, computed, watch } from 'vue';
+import { ref } from 'vue';
 import { supabase } from '@/lib/supabase';
+import { buildStorageProxyUrl, extractStoragePath, isStorageProxyUrl } from '@/lib/storage';
 import { useToast } from 'vue-toastification';
 
 // Define the base domain for the quiz application.
@@ -10,11 +11,6 @@ const BASE_DOMAIN =
     import.meta.env.VITE_APP_URL ||
     (typeof window !== 'undefined' ? window.location.origin : 'https://csu-smartscore.vercel.app');
 const QUIZ_PATH = '/student/quiz';
-
-// Define the base URL for answer images storage
-const STORAGE_PUBLIC_BASE_URL = (import.meta.env.VITE_SUPABASE_STORAGE_PUBLIC_URL || `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public`)
-    .replace(/\/$/, '');
-const ANSWER_IMAGES_BASE_URL = `${STORAGE_PUBLIC_BASE_URL}/answer_keys/`;
 
 // Define Answer Key interface
 export interface AnswerKey {
@@ -41,8 +37,6 @@ export const useAnswerKeysStore = defineStore('answerKeys', () => {
     const quizConfig = ref({
         // The base URL used for the QR code link (to the student quiz)
         baseUrl: `${BASE_DOMAIN}${QUIZ_PATH}`,
-        // The base URL for answer images storage
-        answerImagesBaseUrl: ANSWER_IMAGES_BASE_URL,
     });
 
     // State: Answer keys data
@@ -71,7 +65,9 @@ export const useAnswerKeysStore = defineStore('answerKeys', () => {
      * @returns The full URL string for the image
      */
     const generateAnswerImageUrl = (imagePath: string): string => {
-        return `${quizConfig.value.answerImagesBaseUrl}${imagePath}`;
+        if (!imagePath) return '';
+        if (imagePath.startsWith('http') || isStorageProxyUrl(imagePath)) return imagePath;
+        return buildStorageProxyUrl('answer_keys', imagePath);
     };
 
     /**
@@ -80,7 +76,7 @@ export const useAnswerKeysStore = defineStore('answerKeys', () => {
      * @returns The image filename/path
      */
     const extractImagePathFromUrl = (imageUrl: string): string => {
-        return imageUrl.replace(quizConfig.value.answerImagesBaseUrl, '');
+        return extractStoragePath(imageUrl, 'answer_keys');
     };
 
     /**
@@ -115,6 +111,30 @@ export const useAnswerKeysStore = defineStore('answerKeys', () => {
         try {
             const { data, error } = await supabase
                 .from('answer_keys')
+                .select('*')
+                .eq('id', id)
+                .maybeSingle();
+
+            if (error) throw error;
+
+            return { data, error: null };
+        } catch (error: any) {
+            console.error('Error fetching answer key:', error);
+            toast.error('Failed to fetch answer key');
+            return { data: null, error };
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    /**
+     * Fetch a public-safe answer key (no answer JSON) by ID
+     */
+    const fetchPublicAnswerKeyById = async (id: string | number) => {
+        loading.value = true;
+        try {
+            const { data, error } = await supabase
+                .from('answer_keys_public')
                 .select('*')
                 .eq('id', id)
                 .maybeSingle();
@@ -325,6 +345,7 @@ export const useAnswerKeysStore = defineStore('answerKeys', () => {
         extractImagePathFromUrl,
         fetchAnswerKeys,
         fetchAnswerKeyById,
+        fetchPublicAnswerKeyById,
         createAnswerKey,
         updateAnswerKey,
         deleteAnswerKey,

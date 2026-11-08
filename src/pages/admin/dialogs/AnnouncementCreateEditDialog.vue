@@ -125,6 +125,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { supabase } from '@/lib/supabase'
+import { buildStorageProxyUrl, extractStoragePath } from '@/lib/storage'
 import { useToast } from 'vue-toastification'
 import type { AnnouncementType } from '@/stores/announcementsData'
 
@@ -185,11 +186,6 @@ const rules = {
   required: (value: string) => !!value || 'This field is required'
 }
 
-const storagePublicBaseUrl = (import.meta.env.VITE_SUPABASE_STORAGE_PUBLIC_URL || `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public`)
-  .replace(/\/$/, '')
-
-const announcementsPublicPrefix = `${storagePublicBaseUrl}/announcements/`
-
 // Watch for changes in announcement prop to populate form
 watch(
   () => props.announcement,
@@ -242,16 +238,14 @@ const handleSave = async () => {
 
 const handleCancel = async () => {
   // If user uploaded a new image but is canceling, clean it up
-  if (selectedFile.value && formData.value.image_url && formData.value.image_url.startsWith(announcementsPublicPrefix)) {
+  if (selectedFile.value && formData.value.image_url) {
     try {
-      // Extract filename from URL
-      const urlParts = formData.value.image_url.split('/')
-      const fileName = urlParts[urlParts.length - 1]
-
-      // Delete the uploaded file since user is canceling
-      await supabase.storage
-        .from('announcements')
-        .remove([fileName])
+      const fileName = extractStoragePath(formData.value.image_url, 'announcements')
+      if (fileName) {
+        await supabase.storage
+          .from('announcements')
+          .remove([fileName])
+      }
     } catch (error) {
       console.error('Error cleaning up uploaded file:', error)
     }
@@ -367,11 +361,7 @@ const uploadToSupabase = async (file: File) => {
     uploadProgress.value = 100
     uploading.value = false
 
-    // Get the public URL
-    const publicUrl = `${announcementsPublicPrefix}${data.path}`
-
-    // Store the public URL in form data
-    formData.value.image_url = publicUrl
+    formData.value.image_url = buildStorageProxyUrl('announcements', data.path)
 
     toast.success('Image uploaded successfully!')
 
@@ -391,20 +381,17 @@ const uploadToSupabase = async (file: File) => {
 
 const removeImage = async () => {
   try {
-    // If there's an image URL and it's from Supabase, delete it from storage
-    if (formData.value.image_url && formData.value.image_url.startsWith(announcementsPublicPrefix)) {
-      // Extract filename from URL
-      const urlParts = formData.value.image_url.split('/')
-      const fileName = urlParts[urlParts.length - 1]
+    if (formData.value.image_url) {
+      const fileName = extractStoragePath(formData.value.image_url, 'announcements')
 
-      // Delete from Supabase Storage
-      const { error } = await supabase.storage
-        .from('announcements')
-        .remove([fileName])
+      if (fileName) {
+        const { error } = await supabase.storage
+          .from('announcements')
+          .remove([fileName])
 
-      if (error) {
-        console.error('Error deleting file from storage:', error)
-        // Don't show error to user as the UI cleanup should still happen
+        if (error) {
+          console.error('Error deleting file from storage:', error)
+        }
       }
     }
   } catch (error) {

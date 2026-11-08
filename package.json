@@ -1,5 +1,5 @@
 {
-  "name": "thesis-template-reusable",
+  "name": "csu-smartscore-platform",
   "private": true,
   "type": "module",
   "version": "0.0.0",
@@ -22,7 +22,6 @@
     "@supabase/supabase-js": "^2.57.2",
     "@types/qrcode": "^1.5.6",
     "axios": "^1.11.0",
-    "groq-sdk": "^1.1.1",
     "jspdf": "^4.2.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "5.4.296",

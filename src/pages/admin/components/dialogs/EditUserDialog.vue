@@ -11,6 +11,7 @@ interface User {
   full_name?: string
   role_id?: number
   user_metadata?: Record<string, any>
+  app_metadata?: Record<string, any>
 }
 
 interface Props {
@@ -107,15 +108,19 @@ const handleSubmit = async () => {
       ...props.user.user_metadata,
       full_name: formData.full_name
     }
+    delete userMetadata.role
 
-    // Only update role if current user is admin
-    if (isCurrentUserAdmin.value) {
-      userMetadata.role = formData.role_id
-    }
-
-    const updateData = {
+    const updateData: {
+      email: string
+      user_metadata: Record<string, any>
+      app_metadata?: Record<string, any>
+    } = {
       email: formData.email,
       user_metadata: userMetadata
+    }
+
+    if (isCurrentUserAdmin.value && formData.role_id) {
+      updateData.app_metadata = { ...props.user.app_metadata, role: formData.role_id }
     }
 
     const result = await authStore.updateUser(props.user.id, updateData)

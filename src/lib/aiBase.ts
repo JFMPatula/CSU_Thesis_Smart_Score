@@ -1,4 +1,4 @@
-import { Groq } from 'groq-sdk';
+import { groqChatCompletion } from './groqClient';
 import { transcribeImage } from './vision';
 
 // Free-tier text model on this Groq key. No vision model is free on this
@@ -27,17 +27,8 @@ interface AnswerKeyData {
  * using the free-tier text model.
  */
 export class GroqAIService {
-  private groq: Groq;
-
   // Keep responses deterministic and easier to parse.
   private static readonly DEFAULT_TEMPERATURE = 0.1;
-
-  constructor(apiKey: string) {
-    this.groq = new Groq({
-      apiKey: apiKey,
-      dangerouslyAllowBrowser: true // Required for browser usage
-    });
-  }
 
   /**
    * Process an image-only upload. OCRs the image locally with Tesseract,
@@ -114,7 +105,7 @@ export class GroqAIService {
     });
 
     try {
-      const chatCompletion = await this.groq.chat.completions.create({
+      const chatCompletion = await groqChatCompletion({
         messages: [
           {
             role: 'system',
@@ -128,13 +119,12 @@ export class GroqAIService {
         model: TEXT_MODEL,
         temperature: GroqAIService.DEFAULT_TEMPERATURE,
         max_completion_tokens: 4000,
-        top_p: 0.95,
         response_format: {
           type: 'json_object'
-        } as any
+        }
       });
 
-      const response = chatCompletion.choices[0]?.message?.content || '';
+      const response = chatCompletion.choices?.[0]?.message?.content || '';
       console.log('🤖 Raw Student OCR Analysis Response:', {
         model: TEXT_MODEL,
         responseLength: response.length,
@@ -164,7 +154,7 @@ export class GroqAIService {
     });
 
     try {
-      const chatCompletion = await this.groq.chat.completions.create({
+      const chatCompletion = await groqChatCompletion({
         messages: [
           {
             role: 'system',
@@ -178,13 +168,12 @@ export class GroqAIService {
         model: TEXT_MODEL,
         temperature: GroqAIService.DEFAULT_TEMPERATURE,
         max_completion_tokens: 4000,
-        top_p: 0.95,
         response_format: {
           type: 'json_object'
-        } as any
+        }
       });
 
-      const response = chatCompletion.choices[0]?.message?.content;
+      const response = chatCompletion.choices?.[0]?.message?.content;
       console.log('🤖 Raw OCR Text Analysis Response:', {
         model: TEXT_MODEL,
         responseLength: response?.length || 0,
@@ -462,9 +451,5 @@ Guidelines:
  * Initialize Groq AI service with API key from environment
  */
 export function createGroqAIService(): GroqAIService {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error('GROQ_API_KEY environment variable is not set');
-  }
-  return new GroqAIService(apiKey);
+  return new GroqAIService();
 }

@@ -1,4 +1,4 @@
-import { Groq } from 'groq-sdk';
+﻿import { groqChatCompletion } from './groqClient';
 
 // Free-tier text model on this Groq key.
 const TEXT_MODEL = 'openai/gpt-oss-120b';
@@ -25,15 +25,6 @@ interface BatchSynonymCheckResult {
  * Groq AI service for checking if two answers are synonymous or semantically equivalent
  */
 export class GroqSynonymService {
-  private groq: Groq;
-
-  constructor(apiKey: string) {
-    this.groq = new Groq({
-      apiKey: apiKey,
-      dangerouslyAllowBrowser: true // Required for browser usage
-    });
-  }
-
   /**
    * Check if two answers are synonymous or semantically equivalent
    * @param studentAnswer - The answer provided by the student
@@ -44,7 +35,7 @@ export class GroqSynonymService {
     const prompt = this.createSynonymCheckPrompt(studentAnswer, correctAnswer);
 
     try {
-      const chatCompletion = await this.groq.chat.completions.create({
+      const chatCompletion = await groqChatCompletion({
         messages: [
           {
             role: 'system',
@@ -55,18 +46,15 @@ export class GroqSynonymService {
             content: prompt
           }
         ],
-        model: TEXT_MODEL, // Fast and accurate model for text analysis
-        temperature: 0.2, // Low temperature for consistent, accurate results
+        model: TEXT_MODEL,
+        temperature: 0.2,
         max_completion_tokens: 512,
-        top_p: 1,
-        stream: false,
-        stop: null,
         response_format: {
           type: 'json_object'
-        } as any
+        }
       });
 
-      const content = chatCompletion.choices[0]?.message?.content || '';
+      const content = chatCompletion.choices?.[0]?.message?.content || '';
       return this.parseResponse(content);
     } catch (error) {
       console.error('Error checking synonym:', error);
@@ -92,7 +80,7 @@ export class GroqSynonymService {
     const prompt = this.createBatchSynonymCheckPrompt(answerPairs);
 
     try {
-      const chatCompletion = await this.groq.chat.completions.create({
+      const chatCompletion = await groqChatCompletion({
         messages: [
           {
             role: 'system',
@@ -106,15 +94,12 @@ export class GroqSynonymService {
         model: TEXT_MODEL,
         temperature: 0.2,
         max_completion_tokens: 2048,
-        top_p: 1,
-        stream: false,
-        stop: null,
         response_format: {
           type: 'json_object'
-        } as any
+        }
       });
 
-      const content = chatCompletion.choices[0]?.message?.content || '';
+      const content = chatCompletion.choices?.[0]?.message?.content || '';
       return this.parseBatchResponse(content, answerPairs);
     } catch (error) {
       console.error('Error in batch synonym check:', error);
@@ -281,9 +266,5 @@ Return ONLY valid JSON, no additional text.`;
  * Initialize Groq Synonym service with API key from environment
  */
 export function createGroqSynonymService(): GroqSynonymService {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error('GROQ_API_KEY environment variable is not set');
-  }
-  return new GroqSynonymService(apiKey);
+  return new GroqSynonymService();
 }

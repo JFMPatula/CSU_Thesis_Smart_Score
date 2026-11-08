@@ -256,9 +256,7 @@ const handleRegister = async () => {
         errors.role = errorMessage;
       }
     } else {
-      toast.success(
-        "Account created successfully! Please check your email to verify your account."
-      );
+      toast.success("Account created successfully! You can now sign in.");
       resetForm();
       // Switch back to login form after successful registration
       emit('switch-to-login');

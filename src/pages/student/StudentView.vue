@@ -5,7 +5,6 @@ import { useToast } from "vue-toastification";
 import { useDisplay } from "vuetify";
 import { useStudentQuizStore } from "@/stores/studentQuiz";
 import { useAnswerProcessor } from "./composables/processAnswer";
-import { useStudentsStore } from "@/stores/studentsData";
 import { uploadImageToStorage } from "@/utils/imageUpload";
 import OuterLayoutWrapper from "@/layouts/OuterLayoutWrapper.vue";
 import UploadImageDialog from "./dialogs/UploadImageDialog.vue";
@@ -18,7 +17,6 @@ import SearchResultDialog from "./dialogs/SearchResultDialog.vue";
 const route = useRoute();
 const toast = useToast();
 const studentQuizStore = useStudentQuizStore();
-const studentsStore = useStudentsStore();
 const answerProcessor = useAnswerProcessor();
 
 // Vuetify display helpers (responsive)
@@ -170,63 +168,19 @@ const handleAnswersSubmit = async (finalAnswers: any) => {
       console.warn("Image upload failed:", uploadError);
     }
 
-    // Grade the student answers by comparing with answer key using AI synonym checking
-    console.log("🧮 Grading student submission with AI synonym checking...");
     const gradedAt = performance.now();
     const gradingResult = {
       ...(await studentQuizStore.gradeStudentSubmission(
         finalAnswers.answers,
         parseInt(quizId.value),
+        {
+          fullname: finalAnswers.studentName,
+          student_id: finalAnswers.studentId,
+          imageUrl,
+        },
       )),
       checkingTimeMs: Math.round(performance.now() - gradedAt),
     };
-
-    console.log("📊 Grading Result:", gradingResult);
-
-    // Persist the per-question grading verdict alongside each answer so the
-    // student view and teacher view both read the SAME stored result instead
-    // of re-running AI (which is non-deterministic and can disagree).
-    const comparisonsByQuestion = new Map<number, any>();
-    (gradingResult.comparisons || []).forEach((c: any) => {
-      if (c && typeof c.questionNumber !== "undefined") {
-        comparisonsByQuestion.set(c.questionNumber, c);
-      }
-    });
-
-    const answersWithVerdict = (finalAnswers.answers || []).map((ans: any) => {
-      const cmp = comparisonsByQuestion.get(ans?.questionNumber);
-      if (!cmp) return ans;
-      return {
-        ...ans,
-        isCorrect: cmp.isCorrect,
-        correctAnswer: cmp.correctAnswer,
-        correctAnswerText: cmp.correctAnswer,
-        aiConfidence: cmp.confidence,
-        aiExplanation: cmp.explanation,
-      };
-    });
-
-    // Prepare student data
-    const studentData = {
-      fullname: finalAnswers.studentName,
-      student_id: finalAnswers.studentId,
-      answer_key_id: parseInt(quizId.value),
-      answers: answersWithVerdict,
-      image_url: imageUrl,
-      score: gradingResult.score,
-      remarks: gradingResult.remarks,
-    };
-
-    console.log("💾 Saving student data:", studentData);
-
-    // Save to database
-    const { data, error } = await studentsStore.createStudent(studentData);
-
-    if (error) {
-      throw new Error(error);
-    }
-
-    console.log("✅ Student data saved successfully");
 
     // Store results and show score dialog
     scoreResults.value = gradingResult;

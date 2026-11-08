@@ -21,7 +21,7 @@ function mapAuthUser(user: any): UserData {
     user_metadata: user.user_metadata,
     app_metadata: user.app_metadata,
     full_name: user.user_metadata?.full_name,
-    role_id: user.user_metadata?.role,
+    role_id: user.app_metadata?.role,
   };
 }
 interface UserData {
@@ -54,7 +54,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
   const isAuthenticated = computed(() => userData.value !== null);
   const userEmail = computed(() => userData.value?.email || null);
   const userName = computed(() => userData.value?.user_metadata?.full_name || userData.value?.email || null);
-  const userRole = computed(() => userData.value?.user_metadata?.role || null);
+  const userRole = computed(() => userData.value?.app_metadata?.role || null);
 
  // Resolve the role title from the roles table for a given role ID
   async function fetchRoleTitle(roleId: number | null | undefined): Promise<string | undefined> {
@@ -82,26 +82,24 @@ export const useAuthUserStore = defineStore("authUser", () => {
   ) {
     loading.value = true;
     try {
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: username,
-            role: roleId,
-          }
-        }
+      const response = await fetch("/api/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, fullName: username, roleId }),
       });
+      const payload = await response.json().catch(() => ({}));
 
-      if (signUpError) {
-        return { error: signUpError };
+      if (!response.ok) {
+        return { error: new Error(payload?.error || `Request failed (${response.status})`) };
       }
 
-      if (!signUpData.user) {
+      if (!payload?.user?.id) {
         return { error: new Error("Signup failed") };
       }
 
-      return { data: { id: signUpData.user.id, email } };
+      return { data: { id: payload.user.id, email } };
+    } catch (error) {
+      return { error: error instanceof Error ? error : new Error("Signup failed") };
     } finally {
       loading.value = false;
     }
@@ -129,7 +127,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
       localStorage.setItem("auth_id", user.id);
 
       // Resolve the actual role title from the database for this role ID
-      const roleId = user.user_metadata?.role;
+      const roleId = user.app_metadata?.role;
       const roleTitle = await fetchRoleTitle(roleId);
 
       if (!roleTitle) {
@@ -152,9 +150,6 @@ export const useAuthUserStore = defineStore("authUser", () => {
         role_id: roleId,
         role_title: roleTitle,
       };
-
-      // Log successful login with current user role ID
-      console.log('Successful login - Current user role ID:', roleId, '- Role title:', roleTitle);
 
       return { user };
     } finally {
@@ -195,18 +190,11 @@ export const useAuthUserStore = defineStore("authUser", () => {
 
       if (result.error || !result.user) {
         userData.value = null;
-        console.log("No authenticated user found on initialization");
         return;
       }
 
       // Set user data from getCurrentUser result
       userData.value = result.user;
-
-      // Log user role ID from metadata on mount
-      const roleId = result.user.user_metadata?.role;
-      console.log('User initialized on mount - Role ID:', roleId);
-      console.log('User metadata:', result.user.user_metadata);
-
     } catch (error) {
       console.error("Error initializing auth:", error);
       userData.value = null;
@@ -242,7 +230,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
           user_metadata: user.user_metadata,
           app_metadata: user.app_metadata,
           full_name: user.user_metadata?.full_name,
-          role_id: user.user_metadata?.role,
+          role_id: user.app_metadata?.role,
         }
       };
     } catch (error) {
@@ -274,13 +262,8 @@ export const useAuthUserStore = defineStore("authUser", () => {
         user_metadata: user.user_metadata,
         app_metadata: user.app_metadata,
         full_name: user.user_metadata?.full_name,
-        role_id: user.user_metadata?.role,
+        role_id: user.app_metadata?.role,
       };
-
-      // Log user role ID from metadata
-      const roleId = user.user_metadata?.role;
-      console.log('getCurrentUser - User Role ID from metadata:', roleId);
-      console.log('getCurrentUser - Full user metadata:', user.user_metadata);
 
       return { user: userData };
     } catch (error) {
@@ -292,10 +275,11 @@ export const useAuthUserStore = defineStore("authUser", () => {
   }
 
   // Get all users via the serverless admin endpoint
-  async function getAllUsers() {
+  async function getAllUsers(page = 1, perPage = 50) {
     loading.value = true;
     try {
-      const response = await fetch("/api/admin-users", {
+      const params = new URLSearchParams({ page: String(page), perPage: String(perPage) });
+      const response = await fetch(`/api/admin-users?${params.toString()}`, {
         headers: await getAuthHeaders(),
       });
       const payload = await response.json().catch(() => ({}));
@@ -316,7 +300,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
       // Store users in the reactive state
       users.value = mappedUsers;
 
-      return { users: mappedUsers };
+      return { users: mappedUsers, pagination: payload.pagination };
     } catch (error) {
       console.error("Error fetching all users:", error);
       return { error };
@@ -356,8 +340,10 @@ export const useAuthUserStore = defineStore("authUser", () => {
   // Update user via the serverless admin endpoint
   async function updateUser(userId: string, updateData: {
     email?: string;
+    phone?: string;
     password?: string;
     user_metadata?: Record<string, any>;
+    app_metadata?: Record<string, any>;
   }) {
     loading.value = true;
     try {

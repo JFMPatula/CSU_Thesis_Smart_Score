@@ -12,7 +12,7 @@ import Layouts from 'vite-plugin-vue-layouts-next'
 import Vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     VueRouter({
       dts: 'src/typed-router.d.ts',
@@ -82,6 +82,7 @@ export default defineConfig({
       '.vue',
     ],
   },
+  esbuild: command === 'build' ? { drop: ['console', 'debugger'] } : undefined,
   server: {
     port: 1212,
   },
@@ -95,4 +96,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
