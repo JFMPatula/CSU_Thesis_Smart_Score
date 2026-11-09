@@ -52,7 +52,9 @@ async function visionTranscribe(source: File | Blob | string, prompt?: string): 
       })
     });
     if (!res.ok) {
-      console.warn(`⚠️ Vision endpoint failed (HTTP ${res.status})`);
+      const error = await res.json().catch(() => null);
+      const detail = typeof error?.detail === 'string' ? `: ${error.detail}` : '';
+      console.warn(`⚠️ Vision endpoint failed (HTTP ${res.status}${detail}), falling back to Tesseract`);
       return null;
     }
     const json = await res.json();
