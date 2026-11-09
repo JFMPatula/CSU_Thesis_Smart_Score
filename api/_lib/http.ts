@@ -15,6 +15,23 @@ export function getBearerToken(req: any): string | null {
   return typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : null
 }
 
+export function getTokenFromRequest(req: any): string | null {
+  const bearer = getBearerToken(req)
+  if (bearer) return bearer
+
+  const cookieHeader = req?.headers?.cookie || req?.headers?.Cookie
+  if (typeof cookieHeader !== 'string') return null
+
+  const match = cookieHeader.match(/(?:^|;\s*)sb-access-token=([^;]+)/)
+  if (!match) return null
+
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
 export function roleIdOf(user: any): number | null {
   const raw = user?.app_metadata?.role
   const value = Number(raw)
@@ -26,7 +43,7 @@ export function isAdminUser(user: any): boolean {
 }
 
 export async function getCaller(req: any) {
-  const token = getBearerToken(req)
+  const token = getTokenFromRequest(req)
   if (!token) return { status: 401, error: 'Missing authorization token' as const }
   const admin = getAdminClient()
   if (!admin) return { status: 500, error: 'Server is not configured' as const }

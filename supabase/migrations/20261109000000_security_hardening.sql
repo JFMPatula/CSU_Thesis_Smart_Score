@@ -274,45 +274,4 @@ set image_url = regexp_replace(
 )
 where image_url ~ '/storage/v1/object/public/';
 
--- ----------------------------
--- Unique constraint: one submission per student per answer key
--- ----------------------------
-alter table public.students
-  add constraint students_student_id_answer_key_id_unique unique (student_id, answer_key_id);
 
--- ----------------------------
--- Ownership rules for answer_keys (created_by = auth.uid())
--- ----------------------------
-drop policy if exists "Authenticated read answer_keys" on public.answer_keys;
-drop policy if exists "Authenticated manage answer_keys" on public.answer_keys;
-
-create policy "Authenticated read answer_keys"
-  on public.answer_keys for select
-  to authenticated
-  using (public.is_teacher_or_admin() or created_by = auth.uid());
-
-create policy "Authenticated manage answer_keys"
-  on public.answer_keys for all
-
--- ----------------------------
--- Unique constraint: one submission per student per answer key
--- ----------------------------
-alter table public.students
-  add constraint students_student_id_answer_key_id_unique unique (student_id, answer_key_id);
-
--- ----------------------------
--- Ownership rules for answer_keys (created_by = auth.uid())
--- ----------------------------
-drop policy if exists "Authenticated read answer_keys" on public.answer_keys;
-drop policy if exists "Authenticated manage answer_keys" on public.answer_keys;
-
-create policy "Authenticated read answer_keys"
-  on public.answer_keys for select
-  to authenticated
-  using (public.is_teacher_or_admin() or created_by = auth.uid());
-
-create policy "Authenticated manage answer_keys"
-  on public.answer_keys for all
-  to authenticated
-  using (public.is_teacher_or_admin() or created_by = auth.uid())
-  with check (public.is_teacher_or_admin() or created_by = auth.uid());

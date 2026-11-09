@@ -128,16 +128,21 @@ export const useStudentsStore = defineStore('studentsData', () => {
     };
 
     /**
-     * Search student records by exact student id or full name (public RPC)
+     * Search student records by exact student id and/or full name (public RPC)
      */
-    const searchStudentRecords = async (answerKeyId: number, query: string) => {
+    const searchStudentRecords = async (
+        answerKeyId: number,
+        studentId: string,
+        fullname: string,
+    ) => {
         loading.value = true;
         error.value = null;
 
         try {
             const { data, error: searchError } = await supabase.rpc('search_student_records', {
                 p_answer_key_id: answerKeyId,
-                p_query: query,
+                p_student_id: studentId.trim(),
+                p_fullname: fullname.trim(),
             });
 
             if (searchError) throw searchError;

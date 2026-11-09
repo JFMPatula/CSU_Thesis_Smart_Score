@@ -26,7 +26,8 @@ const emit = defineEmits<{
 const studentsStore = useStudentsStore();
 
 // State
-const searchQuery = ref('');
+const studentIdQuery = ref('');
+const fullNameQuery = ref('');
 const isSearching = ref(false);
 const searchResults = ref<Student[]>([]);
 const hasSearched = ref(false);
@@ -34,26 +35,19 @@ const selectedStudent = ref<Student | null>(null);
 const showStudentDetails = ref(false);
 
 // Computed
-const filteredResults = computed(() => {
-  if (!searchQuery.value.trim()) return [];
-
-  const query = searchQuery.value.toLowerCase().trim();
-
-  return searchResults.value.filter(student =>
-    student.student_id.toLowerCase() === query ||
-    student.fullname.toLowerCase() === query
-  );
-});
+const canSearch = computed(() =>
+  Boolean(studentIdQuery.value.trim() || fullNameQuery.value.trim())
+);
 
 const noResultsFound = computed(() =>
-  hasSearched.value && filteredResults.value.length === 0
+  hasSearched.value && searchResults.value.length === 0
 );
 
 /**
  * Search for student records
  */
 const searchStudents = async () => {
-  if (!searchQuery.value.trim() || !props.answerKeyId) {
+  if (!canSearch.value || !props.answerKeyId) {
     return;
   }
 
@@ -63,7 +57,8 @@ const searchStudents = async () => {
 
     const { data, error } = await studentsStore.searchStudentRecords(
       props.answerKeyId,
-      searchQuery.value
+      studentIdQuery.value,
+      fullNameQuery.value
     );
 
     if (error) {
@@ -102,7 +97,8 @@ const closeStudentDetails = () => {
  */
 const handleClose = () => {
   // Reset state
-  searchQuery.value = '';
+  studentIdQuery.value = '';
+  fullNameQuery.value = '';
   searchResults.value = [];
   hasSearched.value = false;
   selectedStudent.value = null;
@@ -156,11 +152,23 @@ const handleSearchEnter = () => {
             </div>
 
             <v-row>
-              <v-col cols="12" md="8">
+              <v-col cols="12" md="4">
                 <v-text-field
-                  v-model="searchQuery"
-                  label="Enter Student ID or Name"
-                  prepend-inner-icon="mdi-account-search"
+                  v-model="studentIdQuery"
+                  label="Student ID"
+                  prepend-inner-icon="mdi-card-account-details"
+                  variant="outlined"
+                  density="comfortable"
+                  clearable
+                  @keyup.enter="handleSearchEnter"
+                  :disabled="isSearching"
+                />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field
+                  v-model="fullNameQuery"
+                  label="Full Name"
+                  prepend-inner-icon="mdi-account"
                   variant="outlined"
                   density="comfortable"
                   clearable
@@ -174,7 +182,7 @@ const handleSearchEnter = () => {
                   variant="flat"
                   @click="searchStudents"
                   :loading="isSearching"
-                  :disabled="!searchQuery.trim()"
+                  :disabled="!canSearch"
                   block
                   prepend-icon="mdi-magnify"
                 >
@@ -192,10 +200,10 @@ const handleSearchEnter = () => {
             Search Results
             <v-spacer />
             <v-chip
-              :color="filteredResults.length > 0 ? 'success' : 'error'"
+              :color="searchResults.length > 0 ? 'success' : 'error'"
               size="small"
             >
-              {{ filteredResults.length }} found
+              {{ searchResults.length }} found
             </v-chip>
           </v-card-title>
 
@@ -206,15 +214,15 @@ const handleSearchEnter = () => {
             <v-icon size="64" color="grey">mdi-account-question</v-icon>
             <div class="text-h6 mt-4 mb-2">No Records Found</div>
             <div class="text-body-2 text-medium-emphasis">
-              No student records found for "{{ searchQuery }}" in this quiz.
+              No student records found for the provided student ID or name in this quiz.
             </div>
           </div>
 
           <!-- Results List -->
-          <div v-else-if="filteredResults.length > 0" class="results-container" style="max-height: 400px; overflow-y: auto;">
+          <div v-else-if="searchResults.length > 0" class="results-container" style="max-height: 400px; overflow-y: auto;">
             <v-list>
               <v-list-item
-                v-for="student in filteredResults"
+                v-for="student in searchResults"
                 :key="`student-${student.id}`"
                 class="result-item"
                 @click="viewStudent(student)"

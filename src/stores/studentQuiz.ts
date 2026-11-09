@@ -121,8 +121,9 @@ export const useStudentQuizStore = defineStore('studentQuiz', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 quizId: answerKeyId,
+                studentId: student.student_id,
+                fullname: student.fullname,
                 answers: studentAnswers,
-                student,
                 imageUrl: student.imageUrl ?? null,
             }),
         });

@@ -97,7 +97,10 @@ export const useAuthUserStore = defineStore("authUser", () => {
         return { error: new Error("Signup failed") };
       }
 
-      return { data: { id: payload.user.id, email } };
+      return {
+        data: { id: payload.user.id, email },
+        needsEmailConfirmation: Boolean(payload.needsEmailConfirmation),
+      };
     } catch (error) {
       return { error: error instanceof Error ? error : new Error("Signup failed") };
     } finally {

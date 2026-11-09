@@ -1,6 +1,7 @@
-import { applyRateLimit, getAdminClient } from './_lib/http.js'
+import { applyRateLimit, getAdminClient, getCaller } from './_lib/http.js'
 
 const ALLOWED_BUCKETS = new Set(['answer_keys', 'student-answers', 'announcements'])
+const SENSITIVE_BUCKETS = new Set(['answer_keys'])
 const DEFAULT_EXPIRES = 3600
 const MAX_EXPIRES = 86_400
 
@@ -27,10 +28,19 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  const admin = getAdminClient()
+  let admin = getAdminClient()
   if (!admin) {
     res.status(500).json({ error: 'Server is not configured' })
     return
+  }
+
+  if (SENSITIVE_BUCKETS.has(bucket)) {
+    const caller = await getCaller(req)
+    if ('error' in caller) {
+      res.status(caller.status).json({ error: caller.error })
+      return
+    }
+    admin = caller.admin
   }
 
   const { data, error } = await admin.storage.from(bucket).createSignedUrl(rawPath, expires)

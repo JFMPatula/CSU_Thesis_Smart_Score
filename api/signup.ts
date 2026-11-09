@@ -60,12 +60,10 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  const { data, error } = await admin.auth.admin.createUser({
+  const { data, error } = await admin.auth.signUp({
     email,
     password: body.password,
-    email_confirm: false,
-    user_metadata: { full_name: fullName },
-    app_metadata: { role: roleId },
+    options: { data: { full_name: fullName } },
   })
 
   if (error) {
@@ -73,5 +71,28 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  res.status(200).json({ user: { id: data.user?.id, email: data.user?.email } })
+  const user = data.user
+  if (!user) {
+    res.status(400).json({ error: 'Unable to create account' })
+    return
+  }
+  if (Array.isArray(user.identities) && user.identities.length === 0) {
+    res.status(400).json({ error: 'An account with this email already exists.' })
+    return
+  }
+
+  const { error: roleUpdateError } = await admin.auth.admin.updateUserById(user.id, {
+    app_metadata: { ...(user.app_metadata || {}), role: roleId },
+  })
+
+  if (roleUpdateError) {
+    await admin.auth.admin.deleteUser(user.id).catch(() => undefined)
+    res.status(500).json({ error: 'Unable to finish creating your account. Please try again.' })
+    return
+  }
+
+  res.status(200).json({
+    user: { id: user.id, email: user.email },
+    needsEmailConfirmation: !data.session,
+  })
 }

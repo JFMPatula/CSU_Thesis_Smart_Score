@@ -1,4 +1,5 @@
 import { groqChatCompletion } from './groqClient';
+import { supabase } from './supabase';
 import { transcribeImage } from './vision';
 
 // Free-tier text model on this Groq key. No vision model is free on this
@@ -98,6 +99,12 @@ export class GroqAIService {
       return { answers: [], metadata: { totalQuestions: 0, processedQuestions: 0 } };
     }
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      console.log('ℹ️ Anonymous student: structuring OCR text locally.');
+      return this.parseOcrAnswers(ocrText);
+    }
+
     console.log('🔤 Starting Student OCR Analysis:', {
       textLength: ocrText.length,
       model: TEXT_MODEL,
@@ -131,10 +138,67 @@ export class GroqAIService {
         rawResponse: response
       });
 
-      return this.parseRawJson(response);
+      const parsed = this.parseRawJson(response);
+      if (Array.isArray(parsed?.answers) && parsed.answers.length > 0) {
+        return parsed;
+      }
+      return this.parseOcrAnswers(ocrText);
     } catch (error) {
-      console.error('Error with student answer processing:', error);
-      throw new Error(`Answer processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.warn('Student AI structuring failed, using local OCR parser:', error);
+      return this.parseOcrAnswers(ocrText);
+    }
+  }
+
+  private parseOcrAnswers(ocrText: string): any {
+    const answers: Array<{
+      questionNumber: number
+      selectedAnswer: string
+      confidence: number
+    }> = []
+    const seen = new Set<number>()
+    const lines = ocrText.split(/\r?\n/)
+
+    const addAnswer = (questionNumber: number, selectedAnswer: string) => {
+      const answer = selectedAnswer.trim().replace(/^[:\-–—\s]+/, '')
+      if (!answer || seen.has(questionNumber)) return
+      seen.add(questionNumber)
+      answers.push({ questionNumber, selectedAnswer: answer, confidence: 0.6 })
+    }
+
+    for (const line of lines) {
+      const text = line.trim()
+      if (!text) continue
+
+      const labelled = text.match(/^(?:q(?:uestion)?\s*)?(\d{1,3})\s*[).:\-–—]\s*(.+)$/i)
+      if (labelled) {
+        addAnswer(Number(labelled[1]), labelled[2])
+        continue
+      }
+
+      const spaced = text.match(/^(?:q(?:uestion)?\s*)?(\d{1,3})\s+([A-Da-d])\s*$/i)
+      if (spaced) {
+        addAnswer(Number(spaced[1]), spaced[2].toUpperCase())
+        continue
+      }
+
+      const plain = text.match(/^(?:q(?:uestion)?\s*)?(\d{1,3})\s+(.+)$/i)
+      if (plain) {
+        addAnswer(Number(plain[1]), plain[2])
+      }
+    }
+
+    answers.sort((a, b) => a.questionNumber - b.questionNumber)
+    const maxQuestion = answers.reduce((max, answer) => Math.max(max, answer.questionNumber), 0)
+
+    return {
+      answers,
+      metadata: {
+        totalQuestions: maxQuestion,
+        processedQuestions: answers.length,
+        studentName: '',
+        studentId: '',
+        engine: 'tesseract-local',
+      },
     }
   }
 

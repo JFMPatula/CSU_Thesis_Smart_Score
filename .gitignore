@@ -31,3 +31,6 @@ gqtest.cjs
 # supabase local temp files
 supabase/.temp/
 .vercel
+
+# tesseract language data downloaded at runtime
+eng.traineddata

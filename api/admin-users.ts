@@ -48,14 +48,15 @@ export default async function handler(req: any, res: any) {
         res.status(400).json({ error: error.message })
         return
       }
+      const pageInfo = data as any
       res.status(200).json({
         users: data.users,
         pagination: {
           page,
           perPage,
-          total: data.total,
-          nextPage: data.nextPage,
-          lastPage: data.lastPage,
+          total: pageInfo.total,
+          nextPage: pageInfo.nextPage,
+          lastPage: pageInfo.lastPage,
         },
       })
       return

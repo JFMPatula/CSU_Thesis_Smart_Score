@@ -8,6 +8,24 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+function syncAuthCookie(token: string | null) {
+  if (typeof document === 'undefined') return;
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  if (token) {
+    document.cookie = `sb-access-token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=7200${secure}`;
+  } else {
+    document.cookie = `sb-access-token=; Path=/; SameSite=Lax; Max-Age=0${secure}`;
+  }
+}
+
+supabase.auth.getSession().then(({ data }) => {
+  syncAuthCookie(data.session?.access_token ?? null);
+});
+
+supabase.auth.onAuthStateChange((_event, session) => {
+  syncAuthCookie(session?.access_token ?? null);
+});
+
 // NOTE: privileged admin operations (list/delete/update users) must NOT run in
 // the browser with the service role key. They are handled by the serverless
 // function at /api/admin-users instead.
