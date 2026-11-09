@@ -1,6 +1,6 @@
-import { groqChatCompletion } from './groqClient';
+﻿import { groqChatCompletion } from './groqClient';
 import { supabase } from './supabase';
-import { transcribeImage } from './vision';
+import { extractImageJson, transcribeImage } from './vision';
 
 // Free-tier text model on this Groq key. No vision model is free on this
 // account, so images are OCR'd locally (Tesseract) then structured to JSON here.
@@ -38,15 +38,24 @@ export class GroqAIService {
    * @returns Structured answer key data
    */
   async processImageOnly(imageBase64: string): Promise<AnswerKeyData> {
-    console.log('🚀 Starting image processing:', {
+    console.log('ðŸš€ Starting image processing:', {
       imageBase64Length: imageBase64.length,
       imageSize: `~${(imageBase64.length * 0.75 / 1024).toFixed(2)} KB`,
-      stage: 'local OCR (Tesseract)'
+      stage: 'vision (structured)'
     });
+
+    const structured = await this.extractAnswerKeyFromImage(imageBase64);
+    if (structured) {
+      console.log('âœ… Structured vision extraction complete:', {
+        questions: structured.questions.length,
+      });
+      return structured;
+    }
+    console.warn('âš ï¸ Structured vision unavailable; falling back to OCR + text model.');
 
     const ocrText = await this.extractOcrTextFromBase64(imageBase64);
     if (!ocrText.trim().length) {
-      console.warn('⚠️ OCR returned no text; unable to extract an answer key.');
+      console.warn('âš ï¸ OCR returned no text; unable to extract an answer key.');
       return {
         questions: [],
         metadata: { total_questions: 0, subject: 'Unknown', difficulty: 'Unknown' }
@@ -64,12 +73,23 @@ export class GroqAIService {
    * @returns Structured answer key data
    */
   async processWithVision(ocrText: string, imageBase64: string): Promise<AnswerKeyData> {
+    if (imageBase64) {
+      const structured = await this.extractAnswerKeyFromImage(imageBase64, (ocrText || '').slice(0, 4000));
+      if (structured) {
+        console.log('âœ… Structured vision extraction complete:', {
+          questions: structured.questions.length,
+        });
+        return structured;
+      }
+      console.warn('âš ï¸ Structured vision unavailable; falling back to OCR text + text model.');
+    }
+
     let text = (ocrText || '').trim();
     if (!text.length && imageBase64) {
       text = (await this.extractOcrTextFromBase64(imageBase64)).trim();
     }
     if (!text.length) {
-      console.warn('⚠️ No OCR text available for processing.');
+      console.warn('âš ï¸ No OCR text available for processing.');
       return {
         questions: [],
         metadata: { total_questions: 0, subject: 'Unknown', difficulty: 'Unknown' }
@@ -87,25 +107,39 @@ export class GroqAIService {
    * @returns Raw parsed JSON object
    */
   async processStudentAnswerSheet(imageBase64: string, extractionPrompt: string): Promise<any> {
-    console.log('📄 Starting student answer sheet processing:', {
+    console.log('ðŸ“„ Starting student answer sheet processing:', {
       imageBase64Length: imageBase64.length,
       imageSize: `~${(imageBase64.length * 0.75 / 1024).toFixed(2)} KB`,
-      stage: 'local OCR (Tesseract)'
+      stage: 'vision (structured)'
     });
+
+    // Read the sheet directly with the vision model. This works for anonymous
+    // students too (public quiz page) and handles handwriting much better than
+    // the OCR + text-model round trip.
+    const structured = await extractImageJson(imageBase64, extractionPrompt);
+    const structuredAnswers = structured?.data?.answers;
+    if (structured && Array.isArray(structuredAnswers) && structuredAnswers.length > 0) {
+      console.log('âœ… Structured vision extraction complete:', {
+        answers: structuredAnswers.length,
+        engine: structured.engine,
+      });
+      return structured.data;
+    }
+    console.warn('âš ï¸ Structured vision unavailable; falling back to OCR + text model.');
 
     const ocrText = await this.extractOcrTextFromBase64(imageBase64);
     if (!ocrText.trim().length) {
-      console.warn('⚠️ OCR returned no text from the answer sheet.');
+      console.warn('âš ï¸ OCR returned no text from the answer sheet.');
       return { answers: [], metadata: { totalQuestions: 0, processedQuestions: 0 } };
     }
 
     const { data: sessionData } = await supabase.auth.getSession();
     if (!sessionData.session) {
-      console.log('ℹ️ Anonymous student: structuring OCR text locally.');
+      console.log('â„¹ï¸ Anonymous student: structuring OCR text locally.');
       return this.parseOcrAnswers(ocrText);
     }
 
-    console.log('🔤 Starting Student OCR Analysis:', {
+    console.log('ðŸ”¤ Starting Student OCR Analysis:', {
       textLength: ocrText.length,
       model: TEXT_MODEL,
       textPreview: ocrText.substring(0, 300) + (ocrText.length > 300 ? '...' : '')
@@ -132,7 +166,7 @@ export class GroqAIService {
       });
 
       const response = chatCompletion.choices?.[0]?.message?.content || '';
-      console.log('🤖 Raw Student OCR Analysis Response:', {
+      console.log('ðŸ¤– Raw Student OCR Analysis Response:', {
         model: TEXT_MODEL,
         responseLength: response.length,
         rawResponse: response
@@ -159,7 +193,7 @@ export class GroqAIService {
     const lines = ocrText.split(/\r?\n/)
 
     const addAnswer = (questionNumber: number, selectedAnswer: string) => {
-      const answer = selectedAnswer.trim().replace(/^[:\-–—\s]+/, '')
+      const answer = selectedAnswer.trim().replace(/^[:\-â€“â€”\s]+/, '')
       if (!answer || seen.has(questionNumber)) return
       seen.add(questionNumber)
       answers.push({ questionNumber, selectedAnswer: answer, confidence: 0.6 })
@@ -169,7 +203,7 @@ export class GroqAIService {
       const text = line.trim()
       if (!text) continue
 
-      const labelled = text.match(/^(?:q(?:uestion)?\s*)?(\d{1,3})\s*[).:\-–—]\s*(.+)$/i)
+      const labelled = text.match(/^(?:q(?:uestion)?\s*)?(\d{1,3})\s*[).:\-â€“â€”]\s*(.+)$/i)
       if (labelled) {
         addAnswer(Number(labelled[1]), labelled[2])
         continue
@@ -210,7 +244,7 @@ export class GroqAIService {
   async processTextOnly(ocrText: string): Promise<AnswerKeyData> {
     const prompt = this.createTextOnlyPrompt(ocrText);
 
-    console.log('🔤 Starting OCR Text Analysis:', {
+    console.log('ðŸ”¤ Starting OCR Text Analysis:', {
       textLength: ocrText.length,
       model: TEXT_MODEL,
       promptLength: prompt.length,
@@ -238,7 +272,7 @@ export class GroqAIService {
       });
 
       const response = chatCompletion.choices?.[0]?.message?.content;
-      console.log('🤖 Raw OCR Text Analysis Response:', {
+      console.log('ðŸ¤– Raw OCR Text Analysis Response:', {
         model: TEXT_MODEL,
         responseLength: response?.length || 0,
         rawResponse: response
@@ -249,6 +283,72 @@ export class GroqAIService {
       console.error('Error with text-only processing:', error);
       throw new Error(`Text processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Read an answer-key image directly with the vision model and return a
+   * validated answer key. Returns null when vision is unavailable or the
+   * response does not contain a usable questions array.
+   */
+  private async extractAnswerKeyFromImage(
+    imageBase64: string,
+    hint = ''
+  ): Promise<AnswerKeyData | null> {
+    try {
+      const result = await extractImageJson(
+        imageBase64,
+        this.createAnswerKeyVisionPrompt(hint)
+      );
+      const data = result?.data;
+      if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
+        return null;
+      }
+      return this.validateAndSanitizeData(data);
+    } catch (error) {
+      console.warn('Structured answer-key vision extraction failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Prompt for direct answer-key image extraction.
+   */
+  private createAnswerKeyVisionPrompt(hint = ''): string {
+    return `You are an expert educational assessment analyzer. Read the attached answer-key image directly (printed or handwritten) and extract the answer key.
+
+Return a JSON object with the following structure:
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question_text": "Optional question text if clearly visible",
+      "correct_answer": "A",
+      "answer_type": "multiple_choice",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "points": 1
+    }
+  ],
+  "metadata": {
+    "total_questions": 10,
+    "subject": "Optional subject if identifiable",
+    "difficulty": "Optional difficulty level",
+    "instructions": "Any special instructions found"
+  }
+}
+
+Guidelines:
+- Read the answers from the image, not from any hint text
+- Parse all visible questions and their corresponding correct answers
+- Determine answer types: multiple_choice, true_false, fill_blank, essay, matching
+- Look for patterns like "1. A", "Question 1: B", "1) True", etc.
+- Include question text if present
+- For multiple choice, extract all available options if listed
+- Handle handwriting and OCR-style inconsistencies gracefully
+- Count total questions based on parsed content
+- Return valid JSON only, no additional text or explanations${hint.trim() ? `
+
+OCR hint (may contain errors; always trust the image over this hint):
+${hint.trim()}` : ''}`;
   }
 
   /**
@@ -298,7 +398,7 @@ Guidelines:
    * Parse AI response into structured data
    */
   private parseResponse(content: string): AnswerKeyData {
-    console.log('🔍 Parsing AI Response:', {
+    console.log('ðŸ” Parsing AI Response:', {
       contentLength: content.length,
       rawContent: content
     });
@@ -318,14 +418,14 @@ Guidelines:
       // 2) Extract first JSON object.
       const jsonMatch = this.extractFirstJsonObject(cleanedContent);
       if (!jsonMatch) {
-        console.error('❌ No JSON found in AI response:', {
+        console.error('âŒ No JSON found in AI response:', {
           content,
           contentPreview: content.substring(0, 500) + '...'
         });
         throw new Error('No JSON found in response');
       }
 
-      console.log('📝 JSON extracted from AI response:', {
+      console.log('ðŸ“ JSON extracted from AI response:', {
         jsonString: jsonMatch[0],
         jsonLength: jsonMatch[0].length
       });
@@ -333,7 +433,7 @@ Guidelines:
   const repaired = this.repairCommonJsonIssues(jsonMatch);
   const parsedData = JSON.parse(repaired);
 
-      console.log('✅ Successfully parsed JSON from AI:', {
+      console.log('âœ… Successfully parsed JSON from AI:', {
         parsedData,
         questionsFound: parsedData.questions?.length || 0,
         metadata: parsedData.metadata
@@ -342,7 +442,7 @@ Guidelines:
       // Validate and sanitize the response
       const sanitizedData = this.validateAndSanitizeData(parsedData);
 
-      console.log('🔧 Data validation and sanitization complete:', {
+      console.log('ðŸ”§ Data validation and sanitization complete:', {
         originalQuestions: parsedData.questions?.length || 0,
         sanitizedQuestions: sanitizedData.questions.length,
         sanitizedData
@@ -350,7 +450,7 @@ Guidelines:
 
       return sanitizedData;
     } catch (error) {
-      console.error('❌ Error parsing AI response:', {
+      console.error('âŒ Error parsing AI response:', {
         error,
         content,
         contentType: typeof content,
@@ -373,7 +473,7 @@ Guidelines:
    * Used for student answer sheets that return an "answers" schema.
    */
   private parseRawJson(content: string): any {
-    console.log('🔍 Parsing Raw AI Response:', {
+    console.log('ðŸ” Parsing Raw AI Response:', {
       contentLength: content.length,
       rawContent: content
     });
@@ -385,7 +485,7 @@ Guidelines:
 
       const jsonMatch = this.extractFirstJsonObject(cleanedContent);
       if (!jsonMatch) {
-        console.error('❌ No JSON found in AI response:', {
+        console.error('âŒ No JSON found in AI response:', {
           contentPreview: content.substring(0, 500)
         });
         throw new Error('No JSON found in response');
@@ -393,7 +493,7 @@ Guidelines:
 
       return JSON.parse(this.repairCommonJsonIssues(jsonMatch));
     } catch (error) {
-      console.error('❌ Error parsing raw AI response:', {
+      console.error('âŒ Error parsing raw AI response:', {
         error,
         contentPreview: content.substring(0, 1000)
       });
@@ -517,3 +617,4 @@ Guidelines:
 export function createGroqAIService(): GroqAIService {
   return new GroqAIService();
 }
+

@@ -26,6 +26,8 @@ const DEFAULTS: Required<OcrPrepOptions> = {
   contrast: 1.4
 };
 
+const MAX_IMAGE_BYTES = 4_000_000;
+
 /**
  * Detect the MIME type of a raw base64 payload from its header bytes.
  */
@@ -135,11 +137,59 @@ export async function prepareImageSourceForOcr(
   }
 }
 
+export interface ImageQualityReport {
+  width: number;
+  height: number;
+  aspectRatio: number;
+  estimatedFileSizeKB: number;
+  isUsable: boolean;
+  issues: string[];
+}
+
 export interface VisionImageSource {
   base64: string;
   mimeType: string;
   width: number;
   height: number;
+}
+
+/**
+ * Base64-decode a data URL or raw base64 payload into a Uint8Array.
+ * Works in both browser and Node.js environments.
+ */
+function base64ToBytes(dataUrlOrBase64: string): Uint8Array {
+  const base64 = dataUrlOrBase64.includes(',') ? dataUrlOrBase64.split(',')[1] : dataUrlOrBase64;
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Inspect JPEG/PNG header to estimate dimensions without full decode.
+ * Used as a lightweight pre-check in Node.js (no DOM available).
+ */
+function estimateDimensionsFromHeader(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length > 10 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    for (let i = 2; i < bytes.length - 1; i++) {
+      if (bytes[i] === 0xff && (bytes[i + 1] & 0xf0) === 0xc0) {
+        const length = bytes[i + 2] * 256 + bytes[i + 3];
+        if (i + 5 + length <= bytes.length) {
+          const height = bytes[i + 5] * 256 + bytes[i + 6];
+          const width = bytes[i + 7] * 256 + bytes[i + 8];
+          return { width, height };
+        }
+      }
+    }
+  }
+  if (bytes.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+    const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+    return { width, height };
+  }
+  return null;
 }
 
 /**
@@ -152,6 +202,40 @@ function resolveSourceUrl(source: File | Blob | string): { src: string; revoke: 
 }
 
 /**
+ * Validate image quality before sending to a vision model.
+ * Checks dimensions, aspect ratio, and estimated file size.
+ */
+export function validateImageQuality(
+  width: number,
+  height: number,
+  estimatedFileSizeKB: number,
+  options: { minDimension?: number; maxFileSizeKB?: number } = {}
+): ImageQualityReport {
+  const opts = { minDimension: 32, maxFileSizeKB: 4000, ...options };
+  const issues: string[] = [];
+
+  if (width < opts.minDimension || height < opts.minDimension) {
+    issues.push(`Image too small: ${width}x${height} (min ${opts.minDimension}x${opts.minDimension})`);
+  }
+  if (estimatedFileSizeKB > opts.maxFileSizeKB) {
+    issues.push(`Image too large: ${estimatedFileSizeKB.toFixed(0)}KB (max ${opts.maxFileSizeKB}KB)`);
+  }
+  const aspectRatio = width / height;
+  if (aspectRatio > 3 || aspectRatio < 0.33) {
+    issues.push(`Unusual aspect ratio: ${aspectRatio.toFixed(2)}`);
+  }
+
+  return {
+    width,
+    height,
+    aspectRatio,
+    estimatedFileSizeKB,
+    isUsable: issues.length === 0,
+    issues,
+  };
+}
+
+/**
  * Downscale and re-encode an image for sending to a vision model.
  * Color is kept (vision models benefit from it) and the image is re-encoded as
  * JPEG so the payload stays well under the serverless request-body limit.
@@ -161,7 +245,31 @@ export async function prepareImageSourceForVision(
   options: { maxDimension?: number; quality?: number } = {}
 ): Promise<VisionImageSource | null> {
   const opts = { maxDimension: 2048, quality: 0.85, ...options };
-  if (typeof document === 'undefined') return null;
+
+  // ---- Node.js / SSR path: no DOM available ----
+  if (typeof document === 'undefined') {
+    if (typeof source !== 'string') return null;
+    const dataUrl = normalizeImageSource(source);
+    const mime = detectMimeFromBase64(source);
+    const bytes = base64ToBytes(dataUrl);
+    const estimatedKB = (bytes.length / 1024).toFixed(1);
+    const dims = estimateDimensionsFromHeader(bytes);
+    if (!dims) {
+      console.warn('⚠️ Vision skipped: could not read image dimensions from header.');
+      return null;
+    }
+    const quality = validateImageQuality(dims.width, dims.height, parseFloat(estimatedKB), {
+      minDimension: DEFAULTS.minDimension,
+      maxFileSizeKB: MAX_IMAGE_BYTES / 1024,
+    });
+    if (!quality.isUsable) {
+      console.warn(`⚠️ Vision skipped: ${quality.issues.join('; ')}`);
+      return null;
+    }
+    console.log('🔍 Vision source (Node) dimensions:', { width: dims.width, height: dims.height, estimatedKB });
+    const base64 = dataUrl.split(',')[1];
+    return { base64, mimeType: mime, width: dims.width, height: dims.height };
+  }
 
   const { src, revoke } = resolveSourceUrl(source);
   try {
@@ -192,6 +300,16 @@ export async function prepareImageSourceForVision(
 
     const dataUrl = canvas.toDataURL('image/jpeg', opts.quality);
     const base64 = dataUrl.split(',')[1];
+    const estimatedKB = (base64.length * 0.75 / 1024).toFixed(1);
+    const quality = validateImageQuality(canvas.width, canvas.height, parseFloat(estimatedKB), {
+      minDimension: DEFAULTS.minDimension,
+      maxFileSizeKB: MAX_IMAGE_BYTES / 1024,
+    });
+    if (!quality.isUsable) {
+      console.warn(`⚠️ Vision skipped after preprocessing: ${quality.issues.join('; ')}`);
+      return null;
+    }
+
     return { base64, mimeType: 'image/jpeg', width: canvas.width, height: canvas.height };
   } catch (e) {
     console.warn('⚠️ Vision preprocessing failed.', e);

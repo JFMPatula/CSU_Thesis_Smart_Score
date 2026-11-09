@@ -6,6 +6,8 @@ interface ProcessedAnswerResult {
   extractedAnswers: any
   confidence: number
   processingTime: number
+  engine: string
+  perAnswerConfidence: number[]
 }
 
 interface ExtractedAnswer {
@@ -129,14 +131,36 @@ export function useAnswerProcessor() {
 
       toast.success(`Answer sheet processed successfully!`)
 
+      const answers = Array.isArray(extractedAnswers?.answers) ? extractedAnswers.answers : []
+      let aggregateConfidence = 0.85
+      const perAnswerConfidence: number[] = []
+      if (answers.length > 0) {
+        const confs = answers
+          .map((a: any) => Number(a?.confidence))
+          .filter((c: number) => Number.isFinite(c) && c > 0)
+        if (confs.length > 0) {
+          aggregateConfidence = confs.reduce((a: number, b: number) => a + b, 0) / confs.length
+        }
+        answers.forEach((a: any) => {
+          perAnswerConfidence.push(Number(a?.confidence) || aggregateConfidence)
+        })
+      }
+
       const finalResult = {
         extractedAnswers,
-        confidence: 0.85, // Default confidence for vision processing
-        processingTime
+        confidence: aggregateConfidence,
+        processingTime,
+        engine: extractedAnswers?.engine || 'unknown',
+        perAnswerConfidence,
       }
 
       // Log the final result being returned
-      console.log('🎯 Final ProcessAnswer Result:', finalResult)
+      console.log('Final ProcessAnswer Result:', {
+        answerCount: answers.length,
+        aggregateConfidence,
+        engine: extractedAnswers?.engine || 'unknown',
+        processingTime,
+      })
 
       return finalResult
 
