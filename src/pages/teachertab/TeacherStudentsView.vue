@@ -111,7 +111,13 @@ const formatTime = (dateString: string | undefined) => {
 const viewStudentDetails = (student: Student) => {
   selectedStudent.value = student
   detailsDialog.value = true
-}// Lifecycle
+}
+
+const handleStudentUpdated = (student: Student) => {
+  selectedStudent.value = student
+}
+
+// Lifecycle
 onMounted(() => {
   fetchData()
 })
@@ -237,7 +243,18 @@ onMounted(() => {
                 <v-icon v-else>mdi-account</v-icon>
               </v-avatar>
               <div>
-                <div class="font-weight-medium">{{ item.fullname }}</div>
+                <div class="font-weight-medium d-flex align-center">
+                  {{ item.fullname }}
+                  <v-chip
+                    v-if="item.needs_review"
+                    color="warning"
+                    size="x-small"
+                    variant="tonal"
+                    class="ms-2"
+                  >
+                    Needs review
+                  </v-chip>
+                </div>
                 <div class="text-caption text-medium-emphasis">ID: {{ item.student_id }}</div>
               </div>
             </div>
@@ -331,7 +348,18 @@ onMounted(() => {
                     <v-icon v-else>mdi-account</v-icon>
                   </v-avatar>
                   <div class="flex-grow-1">
-                    <div class="font-weight-bold">{{ student.fullname }}</div>
+                    <div class="font-weight-bold d-flex align-center">
+                      {{ student.fullname }}
+                      <v-chip
+                        v-if="student.needs_review"
+                        color="warning"
+                        size="x-small"
+                        variant="tonal"
+                        class="ms-2"
+                      >
+                        Needs review
+                      </v-chip>
+                    </div>
                     <div class="text-caption text-medium-emphasis">ID: {{ student.student_id }}</div>
                   </div>
                 </div>
@@ -423,6 +451,7 @@ onMounted(() => {
       v-model="detailsDialog"
       :student="selectedStudent"
       :quiz-title="selectedStudent ? getAnswerKeyTitle(selectedStudent.answer_key_id) : ''"
+      @updated="handleStudentUpdated"
     />
         </div>
       </v-container>

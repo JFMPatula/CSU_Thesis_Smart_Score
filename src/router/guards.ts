@@ -74,7 +74,12 @@ export const useUserPermissions = () => {
 
   // Filter navigation items based on user permissions
   const getFilteredNavigationItems = (items: NavigationItem[]): NavigationItem[] => {
-    return items.filter(item => hasAccessToRoute(item.route))
+    return items.filter(item => {
+      if (item.roles && !item.roles.includes(Number(userRoleId.value))) {
+        return false
+      }
+      return hasAccessToRoute(item.route)
+    })
   }
 
   // Filter navigation groups based on user permissions

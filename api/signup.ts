@@ -24,7 +24,8 @@ export default async function handler(req: any, res: any) {
   const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : ''
   const roleId = Number(body.roleId)
 
-  // Only Student role can be self-assigned during signup
+  // Public self-registration is limited to Student accounts. Teacher and
+  // Admin accounts must be created/promoted by an administrator.
   const { data: role, error: roleError } = await admin
     .from('roles')
     .select('id,title')
@@ -36,8 +37,9 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  if (role.id === 1 || String(role.title || '').toLowerCase() === 'admin' || String(role.title || '').toLowerCase() === 'teacher') {
-    res.status(400).json({ error: 'This role cannot be self-assigned. Teacher accounts require admin approval.' })
+  const roleTitle = String(role.title || '').toLowerCase()
+  if (roleTitle !== 'student') {
+    res.status(400).json({ error: 'Only student accounts can be self-registered.' })
     return
   }
 
@@ -82,7 +84,11 @@ export default async function handler(req: any, res: any) {
   }
 
   const { error: roleUpdateError } = await admin.auth.admin.updateUserById(user.id, {
-    app_metadata: { ...(user.app_metadata || {}), role: roleId },
+    app_metadata: {
+      ...(user.app_metadata || {}),
+      role: roleId,
+      status: 'active',
+    },
   })
 
   if (roleUpdateError) {
@@ -94,5 +100,7 @@ export default async function handler(req: any, res: any) {
   res.status(200).json({
     user: { id: user.id, email: user.email },
     needsEmailConfirmation: !data.session,
+    needsApproval: false,
+    role: role.title,
   })
 }

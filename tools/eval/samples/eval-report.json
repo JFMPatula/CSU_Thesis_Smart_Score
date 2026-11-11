@@ -1,0 +1,342 @@
+{
+  "summary": {
+    "cases": 1,
+    "successfulCases": 1,
+    "failedCases": 0,
+    "expectedAnswers": 50,
+    "detectedAnswers": 50,
+    "exactMatches": 50,
+    "detectionRecall": 1,
+    "answerPrecision": 1,
+    "answerAccuracy": 1,
+    "f1Score": 1,
+    "avgLatencyMs": 8268,
+    "providerBreakdown": {
+      "groq": {
+        "cases": 1,
+        "expectedAnswers": 50,
+        "detectedAnswers": 50,
+        "exactMatches": 50,
+        "detectionRecall": 1,
+        "answerPrecision": 1,
+        "f1Score": 1,
+        "avgLatencyMs": 8268
+      }
+    },
+    "url": "https://csu-smartscore.vercel.app/api/vision",
+    "generatedAt": "2026-11-09T18:59:22.003Z"
+  },
+  "results": [
+    {
+      "image": "sheet-01.jpg",
+      "provider": "groq",
+      "model": "qwen/qwen3.8-27b",
+      "elapsedMs": 8268,
+      "expected": 50,
+      "detected": 50,
+      "exactMatches": 50,
+      "answers": [
+        {
+          "questionNumber": 1,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 2,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 3,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 4,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 5,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 6,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 7,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 8,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 9,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 10,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 11,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 12,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 13,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 14,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 15,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 16,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 17,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 18,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 19,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 20,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 21,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 22,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 23,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 24,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 25,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 26,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 27,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 28,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 29,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 30,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 31,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 32,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 33,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 34,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 35,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 36,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 37,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 38,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 39,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 40,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 41,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 42,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 43,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 44,
+          "expected": "D",
+          "actual": "D",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 45,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 46,
+          "expected": "C",
+          "actual": "C",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 47,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 48,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 49,
+          "expected": "B",
+          "actual": "B",
+          "status": "ok"
+        },
+        {
+          "questionNumber": 50,
+          "expected": "A",
+          "actual": "A",
+          "status": "ok"
+        }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
-import { applyRateLimit, getAdminClient, parseBody } from './_lib/http.js'
+import { randomUUID } from 'node:crypto'
+import { applyDurableRateLimit, getAdminClient, parseBody } from './_lib/http.js'
 
 const MAX_BYTES = 3 * 1024 * 1024
 const ALLOWED_TYPES: Record<string, string> = {
@@ -41,7 +42,7 @@ export default async function handler(req: any, res: any) {
     res.status(405).json({ error: 'Method not allowed' })
     return
   }
-  if (!applyRateLimit(req, res, 20, 60_000)) return
+  if (!(await applyDurableRateLimit(req, res, 20, 60_000, 'upload'))) return
 
   const admin = getAdminClient()
   if (!admin) {
@@ -96,8 +97,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const extension = ALLOWED_TYPES[detected]
-  const random = Math.random().toString(36).slice(2, 12)
-  const path = `${folder}/${Date.now()}-${random}.${extension}`
+  const path = `${folder}/${Date.now()}-${randomUUID()}.${extension}`
 
   const { data: uploaded, error } = await admin.storage
     .from(bucket)

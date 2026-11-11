@@ -1,7 +1,7 @@
-import { applyRateLimit, getAdminClient, getCaller } from './_lib/http.js'
+import { applyRateLimit, getAdminClient, getCaller, isPendingUser, roleIdOf } from './_lib/http.js'
 
 const ALLOWED_BUCKETS = new Set(['answer_keys', 'student-answers', 'announcements'])
-const SENSITIVE_BUCKETS = new Set(['answer_keys'])
+const AUTH_REQUIRED_BUCKETS = new Set(['answer_keys', 'student-answers'])
 const DEFAULT_EXPIRES = 3600
 const MAX_EXPIRES = 86_400
 
@@ -34,11 +34,22 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  if (SENSITIVE_BUCKETS.has(bucket)) {
+  if (AUTH_REQUIRED_BUCKETS.has(bucket)) {
     const caller = await getCaller(req)
     if ('error' in caller) {
       res.status(caller.status).json({ error: caller.error })
       return
+    }
+    if (isPendingUser(caller.user)) {
+      res.status(403).json({ error: 'Account is pending approval' })
+      return
+    }
+    if (bucket === 'answer_keys') {
+      const callerRole = roleIdOf(caller.user)
+      if (callerRole !== 1 && callerRole !== 2) {
+        res.status(403).json({ error: 'Teacher or Admin access required' })
+        return
+      }
     }
     admin = caller.admin
   }

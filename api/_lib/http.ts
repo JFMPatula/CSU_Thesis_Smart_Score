@@ -38,8 +38,12 @@ export function roleIdOf(user: any): number | null {
   return Number.isFinite(value) ? value : null
 }
 
+export function isPendingUser(user: any): boolean {
+  return String(user?.app_metadata?.status || '').toLowerCase() === 'pending'
+}
+
 export function isAdminUser(user: any): boolean {
-  return roleIdOf(user) === 1
+  return !isPendingUser(user) && roleIdOf(user) === 1
 }
 
 export async function getCaller(req: any) {
@@ -103,14 +107,71 @@ export function applyRateLimit(req: any, res: any, limit = 30, windowMs = 60_000
   return true
 }
 
+/**
+ * Rate limit backed by Upstash Redis when configured, falling back to the
+ * in-memory limiter for local development or when Upstash is unavailable.
+ */
+export async function applyDurableRateLimit(
+  req: any,
+  res: any,
+  limit = 30,
+  windowMs = 60_000,
+  scope = 'global',
+): Promise<boolean> {
+  const url = process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+  if (!url || !token) return applyRateLimit(req, res, limit, windowMs)
+
+  const windowStart = Math.floor(Date.now() / windowMs)
+  const key = `ratelimit:${scope}:${clientKey(req)}:${windowStart}`
+
+  try {
+    const response = await fetch(`${url.replace(/\/$/, '')}/pipeline`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([
+        ['INCR', key],
+        ['PEXPIRE', key, windowMs, 'NX'],
+      ]),
+    })
+    if (!response.ok) throw new Error(`Upstash HTTP ${response.status}`)
+
+    const json = await response.json().catch(() => null)
+    const count = Number(json?.[0]?.result)
+    if (!Number.isFinite(count) || count <= 0) {
+      throw new Error('Unexpected Upstash response')
+    }
+
+    res.setHeader('X-RateLimit-Limit', String(limit))
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, limit - count)))
+    if (count > limit) {
+      const retryAfter = Math.ceil((((windowStart + 1) * windowMs) - Date.now()) / 1000)
+      res.setHeader('Retry-After', String(Math.max(1, retryAfter)))
+      res.status(429).json({ error: 'Too many requests. Please try again later.' })
+      return false
+    }
+    return true
+  } catch (err) {
+    console.warn('Durable rate limit unavailable, falling back to in-memory:', err)
+    return applyRateLimit(req, res, limit, windowMs)
+  }
+}
+
 export function parseBody(req: any): any {
-  if (!req?.body) return {}
-  if (typeof req.body === 'string') {
+  // Vercel's dev/production runtime exposes `req.body` as a getter that parses
+  // the stream on first access. Read it exactly once so we don't try to parse
+  // an already-consumed body.
+  const body = req?.body
+  if (!body) return {}
+  if (typeof body === 'string') {
     try {
-      return JSON.parse(req.body)
+      return JSON.parse(body)
     } catch {
       return {}
     }
   }
-  return req.body
+  return body
 }

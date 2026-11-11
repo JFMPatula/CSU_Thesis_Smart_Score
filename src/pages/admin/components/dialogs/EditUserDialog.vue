@@ -40,7 +40,8 @@ const form = ref()
 const formData = reactive({
   email: '',
   full_name: '',
-  role_id: null as number | null
+  role_id: null as number | null,
+  status: 'active'
 })
 
 // Validation rules
@@ -66,6 +67,16 @@ const roleOptions = computed(() => {
   }))
 })
 
+const statusOptions = [
+  { title: 'Active', value: 'active' },
+  { title: 'Pending approval', value: 'pending' }
+]
+
+const isTeacherRole = computed(() => {
+  const role = rolesStore.roles.find(role => role.id === formData.role_id)
+  return String(role?.title || '').toLowerCase() === 'teacher'
+})
+
 const isCurrentUserAdmin = computed(() => {
   return authStore.userRole === 1
 })
@@ -76,8 +87,16 @@ watch(() => props.user, (newUser) => {
     formData.email = newUser.email || ''
     formData.full_name = newUser.full_name || ''
     formData.role_id = newUser.role_id || null
+    formData.status = newUser.app_metadata?.status || 'active'
   }
 }, { immediate: true })
+
+// Non-teacher accounts do not need approval, so keep them active.
+watch(() => formData.role_id, () => {
+  if (formData.role_id && !isTeacherRole.value) {
+    formData.status = 'active'
+  }
+})
 
 // Watch for dialog close to reset form
 watch(model, (isOpen) => {
@@ -94,6 +113,7 @@ const resetForm = () => {
   formData.email = ''
   formData.full_name = ''
   formData.role_id = null
+  formData.status = 'active'
 }
 
 const handleSubmit = async () => {
@@ -120,7 +140,11 @@ const handleSubmit = async () => {
     }
 
     if (isCurrentUserAdmin.value && formData.role_id) {
-      updateData.app_metadata = { ...props.user.app_metadata, role: formData.role_id }
+      updateData.app_metadata = {
+        ...props.user.app_metadata,
+        role: formData.role_id,
+        status: formData.status,
+      }
     }
 
     const result = await authStore.updateUser(props.user.id, updateData)
@@ -192,6 +216,18 @@ const handleClose = () => {
                   :rules="rules.role_id"
                   variant="outlined"
                   required
+                />
+              </v-col>
+
+              <v-col v-if="isCurrentUserAdmin" cols="12">
+                <v-select
+                  v-model="formData.status"
+                  label="Account Status"
+                  prepend-inner-icon="mdi-account-check"
+                  :items="statusOptions"
+                  variant="outlined"
+                  hint="Pending users cannot sign in until an administrator approves them."
+                  persistent-hint
                 />
               </v-col>
             </v-row>

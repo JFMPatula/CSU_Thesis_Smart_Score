@@ -15,6 +15,8 @@ export interface Student {
     image_url: string | null;
     answers: any | null; // JSONB data
     student_id: string; // Required, cannot be null
+    user_id?: string | null;
+    needs_review?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export interface StudentUpdateInput {
     image_url?: string | null;
     answers?: any | null;
     student_id?: string;
+    needs_review?: boolean;
 }
 
 /**
@@ -150,6 +153,52 @@ export const useStudentsStore = defineStore('studentsData', () => {
             return { data: (data || []) as Student[], error: null };
         } catch (err) {
             error.value = err instanceof Error ? err.message : 'Failed to search student records';
+            return { data: null, error: error.value };
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    /**
+     * Claim previously submitted (anonymous) records for the signed-in student.
+     * Matches on the same student ID and full name used during the quiz.
+     */
+    const claimStudentRecords = async (studentId: string, fullname: string) => {
+        loading.value = true;
+        error.value = null;
+
+        try {
+            const { data, error: claimError } = await supabase.rpc('claim_student_records', {
+                p_student_id: studentId.trim(),
+                p_fullname: fullname.trim(),
+            });
+
+            if (claimError) throw claimError;
+
+            return { count: Number(data || 0), error: null };
+        } catch (err) {
+            error.value = err instanceof Error ? err.message : 'Failed to link previous results';
+            return { count: 0, error: error.value };
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    /**
+     * Fetch the signed-in student's own quiz results.
+     */
+    const fetchMyResults = async () => {
+        loading.value = true;
+        error.value = null;
+
+        try {
+            const { data, error: fetchError } = await supabase.rpc('get_my_student_results');
+
+            if (fetchError) throw fetchError;
+
+            return { data: (data || []) as Student[], error: null };
+        } catch (err) {
+            error.value = err instanceof Error ? err.message : 'Failed to fetch your results';
             return { data: null, error: error.value };
         } finally {
             loading.value = false;
@@ -373,6 +422,8 @@ export const useStudentsStore = defineStore('studentsData', () => {
         fetchStudents,
         fetchStudentsByAnswerKey,
         searchStudentRecords,
+        claimStudentRecords,
+        fetchMyResults,
         fetchStudentById,
         createStudent,
         updateStudent,

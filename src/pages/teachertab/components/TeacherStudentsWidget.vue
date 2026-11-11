@@ -132,7 +132,18 @@ onMounted(() => {
             </v-avatar>
 
             <div class="flex-grow-1">
-              <div class="text-body-2 font-weight-medium">{{ student.fullname }}</div>
+              <div class="text-body-2 font-weight-medium d-flex align-center">
+                {{ student.fullname }}
+                <v-chip
+                  v-if="student.needs_review"
+                  color="warning"
+                  size="x-small"
+                  variant="tonal"
+                  class="ms-2"
+                >
+                  Needs review
+                </v-chip>
+              </div>
               <div class="text-caption text-medium-emphasis">
                 {{ getAnswerKeyTitle(student.answer_key_id) }}
               </div>

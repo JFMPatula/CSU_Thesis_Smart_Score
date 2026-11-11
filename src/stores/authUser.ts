@@ -22,8 +22,26 @@ function mapAuthUser(user: any): UserData {
     app_metadata: user.app_metadata,
     full_name: user.user_metadata?.full_name,
     role_id: user.app_metadata?.role,
+    status: user.app_metadata?.status,
   };
 }
+
+function isPendingApproval(user: any): boolean {
+  return String(user?.app_metadata?.status || "").toLowerCase() === "pending";
+}
+
+function pendingApprovalError(): Error {
+  return new Error(
+    "Your account is awaiting administrator approval. You can sign in once an admin approves it.",
+  );
+}
+
+function clearLocalSession(): void {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
+  localStorage.removeItem("auth_id");
+}
+
 interface UserData {
   id: string;
   email?: string;
@@ -33,6 +51,7 @@ interface UserData {
   full_name?: string;
   role_id?: number;
   role_title?: string;
+  status?: string;
 }
 
 interface SessionUser {
@@ -100,6 +119,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
       return {
         data: { id: payload.user.id, email },
         needsEmailConfirmation: Boolean(payload.needsEmailConfirmation),
+        needsApproval: Boolean(payload.needsApproval),
       };
     } catch (error) {
       return { error: error instanceof Error ? error : new Error("Signup failed") };
@@ -125,6 +145,13 @@ export const useAuthUserStore = defineStore("authUser", () => {
       }
 
       const user = data.user;
+
+      if (isPendingApproval(user)) {
+        await supabase.auth.signOut();
+        clearLocalSession();
+        return { error: pendingApprovalError() };
+      }
+
       localStorage.setItem("access_token", data.session.access_token);
       localStorage.setItem("refresh_token", data.session.refresh_token);
       localStorage.setItem("auth_id", user.id);
@@ -136,9 +163,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
       if (!roleTitle) {
         console.error("Login blocked: no matching role found for role ID:", roleId);
         await supabase.auth.signOut();
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        localStorage.removeItem("auth_id");
+        clearLocalSession();
         return { error: new Error("Your account role is not configured. Contact your administrator.") };
       }
 
@@ -152,6 +177,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
         full_name: user.user_metadata?.full_name,
         role_id: roleId,
         role_title: roleTitle,
+        status: user.app_metadata?.status,
       };
 
       return { user };
@@ -170,9 +196,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
       }
 
       // Clear local storage
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("auth_id");
+      clearLocalSession();
 
       // Clear user data
       userData.value = null;
@@ -234,6 +258,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
           app_metadata: user.app_metadata,
           full_name: user.user_metadata?.full_name,
           role_id: user.app_metadata?.role,
+          status: user.app_metadata?.status,
         }
       };
     } catch (error) {
@@ -258,6 +283,12 @@ export const useAuthUserStore = defineStore("authUser", () => {
         return { error: new Error("No authenticated user") };
       }
 
+      if (isPendingApproval(user)) {
+        await supabase.auth.signOut();
+        clearLocalSession();
+        return { error: pendingApprovalError() };
+      }
+
       const userData: UserData = {
         id: user.id,
         email: user.email,
@@ -266,6 +297,7 @@ export const useAuthUserStore = defineStore("authUser", () => {
         app_metadata: user.app_metadata,
         full_name: user.user_metadata?.full_name,
         role_id: user.app_metadata?.role,
+        status: user.app_metadata?.status,
       };
 
       return { user: userData };

@@ -1,5 +1,6 @@
 import {
-  applyRateLimit,
+  applyDurableRateLimit,
+  getAdminClient,
   getCaller,
   getTokenFromRequest,
   parseBody,
@@ -8,17 +9,47 @@ import {
 const DEFAULT_PROMPT =
   'Transcribe all visible text from this image exactly as written, preserving line breaks and the layout of questions and answers. Output only the transcribed text.'
 
+// Anonymous callers (public student quiz page) always use this server-side
+// prompt so the client cannot inject arbitrary instructions.
+const STUDENT_ANSWER_PROMPT = `You are an expert at extracting student written answers from answer sheet images. Analyze the provided image and extract the student's text-based answers in this JSON format:
+{
+  "answers": [
+    {
+      "questionNumber": 1,
+      "selectedAnswer": "photosynthesis",
+      "confidence": 0.95,
+      "alternatives": ["photosynth"]
+    }
+  ],
+  "metadata": {
+    "totalQuestions": 10,
+    "processedQuestions": 8,
+    "studentName": "extracted name if visible",
+    "studentId": "extracted ID if visible"
+  }
+}
+
+Instructions:
+1. Extract full word answers, not multiple choice letters (A, B, C, D).
+2. If text is unclear, include alternatives and lower the confidence.
+3. Extract any visible student information (name, ID number, date, etc.).
+4. Pay attention to question numbers and the final intended answer after corrections.
+5. Ignore multiple choice bubbles unless they are part of written text.
+6. Return only valid JSON with no additional text or explanation.`
+
 const MAX_IMAGE_BYTES = 4_000_000
 const MAX_PROMPT_CHARS = 8_000
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
-const DEFAULT_MODEL = 'gemini-3.5-flash-lite'
-const FALLBACK_MODELS = ['gemini-3-flash-preview', 'gemini-3.8-flash']
+const DEFAULT_MODEL = 'gemini-3.5-flash'
+const FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']
 const MODEL_TIMEOUT_MS = 30_000
-const OVERALL_TIMEOUT_MS = 90_000
+const OVERALL_TIMEOUT_MS = 50_000
 
 const GROQ_VISION_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const DEFAULT_GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
+// Groq retired the Llama 4 Scout/Maverick vision models. Use the current
+// multimodal model instead.
+const DEFAULT_GROQ_VISION_MODEL = 'qwen/qwen3.8-27b'
 const GROQ_TIMEOUT_MS = 45_000
 
 type VisionMode = 'text' | 'json'
@@ -72,11 +103,16 @@ function modelCandidates(): string[] {
 }
 
 function groqVisionModels(): string[] {
-  const configured = process.env.GROQ_VISION_MODEL || DEFAULT_GROQ_VISION_MODEL
-  return configured
+  const configured = (process.env.GROQ_VISION_MODEL || DEFAULT_GROQ_VISION_MODEL)
     .split(',')
     .map((model) => model.trim())
     .filter(Boolean)
+  const seen = new Set<string>()
+  return configured.filter((model) => {
+    if (seen.has(model)) return false
+    seen.add(model)
+    return true
+  })
 }
 
 function extractGeminiText(json: any): string {
@@ -181,7 +217,7 @@ export default async function handler(req: any, res: any) {
   // tighter per-IP limit. Authenticated callers get a slightly higher budget.
   const token = getTokenFromRequest(req)
   const isAnonymous = !token
-  if (!applyRateLimit(req, res, isAnonymous ? 10 : 20, 60_000)) return
+  if (!(await applyDurableRateLimit(req, res, isAnonymous ? 10 : 20, 60_000, 'vision'))) return
 
   if (!isAnonymous) {
     const caller = await getCaller(req)
@@ -201,8 +237,8 @@ export default async function handler(req: any, res: any) {
   const body = parseBody(req)
   const image = body.image
   const mimeType = typeof body.mimeType === 'string' ? body.mimeType : 'image/jpeg'
-  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
-  const mode: VisionMode = body.mode === 'json' ? 'json' : 'text'
+  const clientPrompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+  const requestedMode: VisionMode = body.mode === 'json' ? 'json' : 'text'
 
   if (typeof image !== 'string' || image.length === 0) {
     res.status(400).json({ error: 'Missing image data', text: null })
@@ -212,9 +248,39 @@ export default async function handler(req: any, res: any) {
     res.status(415).json({ error: 'Unsupported image type', text: null })
     return
   }
-  if (prompt.length > MAX_PROMPT_CHARS) {
+  if (!isAnonymous && clientPrompt.length > MAX_PROMPT_CHARS) {
     res.status(400).json({ error: 'Prompt is too long', text: null })
     return
+  }
+
+  if (isAnonymous) {
+    const quizId = Number(body.quizId)
+    if (!Number.isInteger(quizId) || quizId <= 0) {
+      res.status(400).json({ error: 'A valid quizId is required', text: null })
+      return
+    }
+
+    const admin = getAdminClient()
+    if (!admin) {
+      res.status(503).json({ error: 'Vision not configured', text: null })
+      return
+    }
+
+    const { data: quiz, error: quizError } = await admin
+      .from('answer_keys')
+      .select('id, is_active')
+      .eq('id', quizId)
+      .maybeSingle()
+
+    if (quizError) {
+      console.error('Failed to verify quiz for vision request:', quizError)
+      res.status(503).json({ error: 'Vision temporarily unavailable', text: null })
+      return
+    }
+    if (!quiz || !quiz.is_active) {
+      res.status(403).json({ error: 'Quiz is not active', text: null })
+      return
+    }
   }
 
   let imageBytes: number
@@ -229,10 +295,12 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  const effectivePrompt = prompt || DEFAULT_PROMPT
+  const effectivePrompt = isAnonymous
+    ? STUDENT_ANSWER_PROMPT
+    : clientPrompt || DEFAULT_PROMPT
+  const effectiveMode: VisionMode = isAnonymous ? 'json' : requestedMode
   const startedAt = Date.now()
   let lastDetail = 'Vision request failed'
-  const tried: string[] = []
 
   if (geminiKey) {
     const payload = {
@@ -247,14 +315,13 @@ export default async function handler(req: any, res: any) {
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 8192,
-        responseMimeType: mode === 'json' ? 'application/json' : 'text/plain',
+        responseMimeType: effectiveMode === 'json' ? 'application/json' : 'text/plain',
       },
     }
 
     for (const model of modelCandidates()) {
       const remaining = OVERALL_TIMEOUT_MS - (Date.now() - startedAt)
       if (remaining <= 0) break
-      tried.push(model)
 
       try {
         const { response, json } = await requestGemini(
@@ -270,6 +337,9 @@ export default async function handler(req: any, res: any) {
             `Gemini model ${model} failed (${response.status}):`,
             String(lastDetail).slice(0, 500),
           )
+          // Auth/billing problems are account-wide; skip the remaining Gemini
+          // models and let the Groq fallback handle the request.
+          if (response.status === 401 || response.status === 403) break
           continue
         }
 
@@ -279,7 +349,7 @@ export default async function handler(req: any, res: any) {
           continue
         }
 
-        res.status(200).json({ ok: true, text, model, provider: 'gemini', mode })
+        res.status(200).json({ ok: true, text, model, provider: 'gemini', mode: effectiveMode })
         return
       } catch (err: any) {
         lastDetail =
@@ -291,12 +361,11 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // Fallback: Groq's multimodal Llama models (same key as text grading).
+  // Fallback: Groq's multimodal models (same key as text grading).
   if (groqKey) {
     for (const model of groqVisionModels()) {
       const remaining = OVERALL_TIMEOUT_MS - (Date.now() - startedAt)
       if (remaining <= 0) break
-      tried.push(model)
 
       try {
         const { response, json } = await requestGroqVision(
@@ -305,7 +374,7 @@ export default async function handler(req: any, res: any) {
           image,
           mimeType,
           effectivePrompt,
-          mode,
+          effectiveMode,
           Math.min(GROQ_TIMEOUT_MS, remaining),
         )
 
@@ -324,7 +393,7 @@ export default async function handler(req: any, res: any) {
           continue
         }
 
-        res.status(200).json({ ok: true, text, model, provider: 'groq', mode })
+        res.status(200).json({ ok: true, text, model, provider: 'groq', mode: effectiveMode })
         return
       } catch (err: any) {
         lastDetail =
@@ -338,8 +407,6 @@ export default async function handler(req: any, res: any) {
 
   res.status(503).json({
     error: 'Vision temporarily unavailable',
-    detail: lastDetail,
-    tried,
     text: null,
   })
 }

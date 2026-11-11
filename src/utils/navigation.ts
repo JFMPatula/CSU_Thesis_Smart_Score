@@ -4,6 +4,7 @@ export interface NavigationItem {
   route: string
   selected?: boolean
   permission?: string // Optional permission key for role-based access
+  roles?: number[] // Optional role IDs allowed to see this item
 }
 
 export interface NavigationGroup {
@@ -28,6 +29,12 @@ export const navigationConfig: NavigationGroup[] = [
         title: 'Settings',
         icon: 'mdi-cog-outline',
         route: '/account/settings'
+      },
+      {
+        title: 'My Results',
+        icon: 'mdi-chart-box-outline',
+        route: '/account/results',
+        roles: [4]
       },
     ]
   },

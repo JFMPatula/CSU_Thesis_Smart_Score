@@ -36,7 +36,7 @@ const showStudentDetails = ref(false);
 
 // Computed
 const canSearch = computed(() =>
-  Boolean(studentIdQuery.value.trim() || fullNameQuery.value.trim())
+  Boolean(studentIdQuery.value.trim() && fullNameQuery.value.trim())
 );
 
 const noResultsFound = computed(() =>

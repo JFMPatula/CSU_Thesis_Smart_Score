@@ -94,6 +94,7 @@ async function callVisionEndpoint(
   source: File | Blob | string,
   prompt: string,
   mode: 'text' | 'json',
+  quizId?: number,
 ): Promise<{ text: string; provider: string; model: string } | null> {
   const prepared = await prepareImageSourceForVision(source);
   if (!prepared) return null;
@@ -111,12 +112,11 @@ async function callVisionEndpoint(
         mimeType: prepared.mimeType,
         prompt,
         mode,
+        ...(quizId ? { quizId } : {}),
       }),
     });
     if (!res.ok) {
-      const error = await res.json().catch(() => null);
-      const detail = typeof error?.detail === 'string' ? `: ${error.detail}` : '';
-      console.warn(`⚠️ Vision endpoint failed (HTTP ${res.status}${detail})`);
+      console.warn(`⚠️ Vision endpoint failed (HTTP ${res.status})`);
       return null;
     }
     const json = await res.json();
@@ -169,8 +169,9 @@ function parseJsonText(raw: string): any | null {
 export async function extractImageJson(
   source: File | Blob | string,
   prompt: string,
+  quizId?: number,
 ): Promise<ImageJsonResult | null> {
-  const result = await callVisionEndpoint(source, prompt, 'json');
+  const result = await callVisionEndpoint(source, prompt, 'json', quizId);
   if (!result) return null;
 
   const data = parseJsonText(result.text);

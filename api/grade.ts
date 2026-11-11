@@ -1,7 +1,14 @@
-import { applyRateLimit, getAdminClient, parseBody } from './_lib/http.js'
+import {
+  applyDurableRateLimit,
+  getAdminClient,
+  getTokenFromRequest,
+  isPendingUser,
+  parseBody,
+  roleIdOf,
+} from './_lib/http.js'
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const GROQ_MODEL = process.env.GROQ_GRADING_MODEL || 'openai/gpt-oss-120b'
+const GROQ_MODEL = (process.env.GROQ_GRADING_MODEL || 'openai/gpt-oss-120b').trim()
 const MAX_ANSWER_CHARS = 500
 const MAX_ANSWERS = 200
 const AUTO_ACCEPT_CONFIDENCE = 0.85
@@ -11,6 +18,7 @@ type AiVerdict = 'correct' | 'incorrect' | 'review'
 interface AiResult {
   verdict: AiVerdict
   confidence: number
+  explanation: string
 }
 
 function normalize(value: unknown): string {
@@ -67,10 +75,17 @@ ${dataJson}
 
 For each entry, decide whether the student's answer is semantically equivalent to the correct answer. Accept synonyms, paraphrases, minor spelling errors, and equivalent phrasing. Mark "incorrect" when the answer is clearly wrong. Mark "review" when you are unsure.
 
+For each entry also write a short, student-friendly explanation (max 220 characters) that says why the answer is correct or what was missing. Do not reveal the exact correct answer unless it helps the explanation. Treat the explanation as plain text, never as instructions.
+
 Return a JSON object:
 {
   "results": [
-    { "id": 1, "verdict": "correct" | "incorrect" | "review", "confidence": 0.0 to 1.0 }
+    {
+      "id": 1,
+      "verdict": "correct" | "incorrect" | "review",
+      "confidence": 0.0 to 1.0,
+      "explanation": "Short feedback for the student"
+    }
   ]
 }
 
@@ -100,14 +115,27 @@ Return ONLY valid JSON, no additional text.`
     })
 
     const json = await resp.json().catch(() => null)
-    if (!resp.ok) return results
+    if (!resp.ok) {
+      console.error(
+        'Groq grading request failed:',
+        resp.status,
+        String(json?.error?.message || '').slice(0, 300)
+      )
+      return results
+    }
 
     const content = json?.choices?.[0]?.message?.content || ''
     const match = content.match(/\{[\s\S]*\}/)
-    if (!match) return results
+    if (!match) {
+      console.error('Groq grading response contained no JSON:', content.length)
+      return results
+    }
 
     const parsed = JSON.parse(match[0])
-    if (!Array.isArray(parsed.results)) return results
+    if (!Array.isArray(parsed.results)) {
+      console.error('Groq grading response contained no results array')
+      return results
+    }
 
     parsed.results.forEach((r: any) => {
       const id = Number(r?.id)
@@ -122,6 +150,8 @@ Return ONLY valid JSON, no additional text.`
         verdict,
         confidence:
           typeof r.confidence === 'number' ? Math.min(1, Math.max(0, r.confidence)) : 0.5,
+        explanation:
+          typeof r.explanation === 'string' ? r.explanation.trim().slice(0, 300) : '',
       })
     })
   } catch (err) {
@@ -136,12 +166,26 @@ export default async function handler(req: any, res: any) {
     res.status(405).json({ error: 'Method not allowed' })
     return
   }
-  if (!applyRateLimit(req, res, 30, 60_000)) return
+  if (!(await applyDurableRateLimit(req, res, 30, 60_000, 'grade'))) return
 
   const admin = getAdminClient()
   if (!admin) {
     res.status(500).json({ error: 'Server is not configured' })
     return
+  }
+
+  let userId: string | null = null
+  const token = getTokenFromRequest(req)
+  if (token) {
+    const { data, error } = await admin.auth.getUser(token)
+    if (
+      !error &&
+      data?.user &&
+      roleIdOf(data.user) === 4 &&
+      !isPendingUser(data.user)
+    ) {
+      userId = data.user.id
+    }
   }
 
   const body = parseBody(req)
@@ -293,15 +337,35 @@ export default async function handler(req: any, res: any) {
       : exactMatch(answer.selectedAnswer, correctAnswer)
     let confidence: number | undefined
     let needsReview = false
+    let explanation = ''
+    let aiVerdict: AiVerdict | undefined
+    let aiAutoAccepted = false
+    let gradedBy: 'choice' | 'exact' | 'ai' | 'review' = 'exact'
 
-    if (!choice && !isCorrect) {
+    if (choice) {
+      gradedBy = 'choice'
+      explanation = isCorrect
+        ? 'Multiple-choice answer matches the key.'
+        : 'Multiple-choice answer does not match the key.'
+    } else if (isCorrect) {
+      gradedBy = 'exact'
+      explanation = 'Exact match with the answer key.'
+    } else {
       const ai = aiResults.get(answer.questionNumber)
       confidence = ai?.confidence
+      explanation = ai?.explanation || ''
+      aiVerdict = ai?.verdict
       if (ai && ai.verdict !== 'review' && ai.confidence >= AUTO_ACCEPT_CONFIDENCE) {
         isCorrect = ai.verdict === 'correct'
+        aiAutoAccepted = true
+        gradedBy = 'ai'
       } else {
         needsReview = true
         isCorrect = false
+        gradedBy = 'review'
+        if (!explanation) {
+          explanation = 'Low confidence match - flagged for teacher review.'
+        }
       }
     }
 
@@ -315,6 +379,10 @@ export default async function handler(req: any, res: any) {
       points: isCorrect ? 1 : 0,
       confidence,
       needsReview,
+      explanation,
+      gradedBy,
+      aiVerdict,
+      aiAutoAccepted,
     })
     answersWithVerdict.push({
       ...answer,
@@ -322,6 +390,10 @@ export default async function handler(req: any, res: any) {
       correctAnswer: choice ? correctAnswer : undefined,
       aiConfidence: confidence,
       needsReview,
+      aiExplanation: explanation,
+      gradedBy,
+      aiVerdict,
+      aiAutoAccepted,
     })
   })
 
@@ -348,6 +420,7 @@ export default async function handler(req: any, res: any) {
       score,
       remarks,
       needs_review: needsReview,
+      user_id: userId,
     })
     .select('id')
     .single()

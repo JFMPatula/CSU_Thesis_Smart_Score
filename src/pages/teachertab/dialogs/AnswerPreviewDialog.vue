@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
-import type { Student } from '@/stores/studentsData'
+import { computed, ref, watch } from 'vue'
+import { useStudentsStore, type Student } from '@/stores/studentsData'
 import { useAnswerKeysStore } from '@/stores/answerKeysData'
 import { getScoreColor, formatFullDate } from '@/pages/student/utils/helpers'
 import { getAnswerCardClass, getCorrectAnswerForQuestion, getAnswerValue } from '@/pages/student/utils/getHelpers'
@@ -21,10 +21,17 @@ const props = withDefaults(defineProps<Props>(), {
 // Emits
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
+  updated: [student: Student]
 }>()
 
-// Store
+// Stores
 const answerKeysStore = useAnswerKeysStore()
+const studentsStore = useStudentsStore()
+
+const reviewingQuestion = ref<number | null>(null)
+const snackbar = ref(false)
+const snackbarText = ref('')
+const snackbarColor = ref<'success' | 'error'>('success')
 
 const answerKeyData = computed(() => {
   if (!props.student?.answer_key_id) return null
@@ -177,6 +184,95 @@ const parsedAnswers = computed(() => {
   }
 })
 
+const getRawAnswers = (): any[] => {
+  const answers = props.student?.answers
+  if (Array.isArray(answers)) return answers
+  if (answers && typeof answers === 'object') {
+    if (Array.isArray((answers as any).answers)) return (answers as any).answers
+    return Object.entries(answers).map(([key, value]: [string, any]) => ({
+      questionNumber: parseInt(key.replace(/\D/g, '')) || getQuestionNumber(key),
+      ...value
+    }))
+  }
+  return []
+}
+
+const totalQuestionCount = computed(() => {
+  const answerKeys: any = answerKeyData.value?.answer_keys
+  const questions = Array.isArray(answerKeys)
+    ? answerKeys
+    : answerKeys?.questions ?? answerKeys?.answers
+  if (Array.isArray(questions) && questions.length > 0) return questions.length
+  return parsedAnswers.value.length || 1
+})
+
+const reviewAnswer = async (answer: any, verdict: 'correct' | 'incorrect') => {
+  const student = props.student
+  if (!student?.id || !answer) return
+
+  const questionNumber = Number(answer.questionNumber)
+  if (!Number.isInteger(questionNumber) || questionNumber <= 0) return
+
+  reviewingQuestion.value = questionNumber
+
+  try {
+    const parsedByQuestion = new Map<number, any>(
+      parsedAnswers.value.map(item => [item.questionNumber, item] as [number, any])
+    )
+
+    const updatedAnswers = getRawAnswers().map((item, index) => {
+      const qn = Number(item?.questionNumber) || (index + 1)
+      const parsed = parsedByQuestion.get(qn)
+      const isTarget = qn === questionNumber
+      const baseIsCorrect =
+        typeof item?.isCorrect === 'boolean' ? item.isCorrect : !!parsed?.isCorrect
+      const baseNeedsReview =
+        typeof item?.needsReview === 'boolean' ? item.needsReview : !!parsed?.needsReview
+
+      return {
+        ...item,
+        questionNumber: qn,
+        isCorrect: isTarget ? verdict === 'correct' : baseIsCorrect,
+        needsReview: isTarget ? false : baseNeedsReview,
+        ...(isTarget
+          ? {
+              reviewedBy: 'teacher',
+              reviewedAt: new Date().toISOString(),
+              reviewedVerdict: verdict,
+            }
+          : {})
+      }
+    })
+
+    const correctCount = updatedAnswers.filter(item => item.isCorrect === true).length
+    const score = Math.min(
+      100,
+      Math.round((correctCount / totalQuestionCount.value) * 100)
+    )
+    const needsReview = updatedAnswers.some(item => item.needsReview === true)
+
+    const { data, error } = await studentsStore.updateStudent(student.id, {
+      answers: updatedAnswers,
+      score,
+      needs_review: needsReview
+    })
+
+    if (error || !data) {
+      snackbarText.value = error || 'Unable to save review'
+      snackbarColor.value = 'error'
+      snackbar.value = true
+      return
+    }
+
+    emit('updated', data as Student)
+    snackbarText.value = verdict === 'correct' ? 'Answer approved' : 'Answer overridden'
+    snackbarColor.value = 'success'
+    snackbar.value = true
+  } finally {
+    reviewingQuestion.value = null
+  }
+}
+
 // Methods
 const closeDialog = () => {
   emit('update:modelValue', false)
@@ -203,7 +299,19 @@ const closeDialog = () => {
           <v-icon v-else>mdi-account</v-icon>
         </v-avatar>
         <div>
-          <div class="text-h6">{{ student.fullname }}</div>
+          <div class="text-h6 d-flex align-center">
+            {{ student.fullname }}
+            <v-chip
+              v-if="student.needs_review"
+              color="warning"
+              size="x-small"
+              variant="tonal"
+              class="ms-2"
+              prepend-icon="mdi-alert"
+            >
+              Needs review
+            </v-chip>
+          </div>
           <div class="text-subtitle-2 text-medium-emphasis">Student ID: {{ student.student_id }}</div>
         </div>
         <v-spacer></v-spacer>
@@ -293,7 +401,7 @@ const closeDialog = () => {
                 variant="outlined"
                 class="answer-card"
                 :class="[
-                  // Prioritize correctness over other states
+                  answer.needsReview ? 'border-warning' :
                   (answer.correctAnswer && answer.isCorrect) ? 'border-success' :
                   (answer.correctAnswer && !answer.isCorrect) ? 'border-error' :
                   getAnswerCardClass(answer)
@@ -354,6 +462,75 @@ const closeDialog = () => {
                     </v-chip>
                   </div>
 
+                  <!-- Review status -->
+                  <div class="d-flex flex-wrap gap-1 mb-2">
+                    <v-chip
+                      v-if="answer.needsReview"
+                      size="x-small"
+                      color="warning"
+                      variant="tonal"
+                      prepend-icon="mdi-alert"
+                    >
+                      Needs review
+                    </v-chip>
+                    <v-chip
+                      v-else-if="answer.reviewedBy === 'teacher'"
+                      size="x-small"
+                      color="success"
+                      variant="tonal"
+                      prepend-icon="mdi-check-decagram"
+                    >
+                      {{
+                        answer.reviewedVerdict === 'correct'
+                          ? 'Teacher approved'
+                          : answer.reviewedVerdict === 'incorrect'
+                            ? 'Teacher overrode'
+                            : 'Teacher reviewed'
+                      }}
+                    </v-chip>
+                    <v-chip
+                      v-else-if="answer.aiAutoAccepted"
+                      size="x-small"
+                      color="info"
+                      variant="tonal"
+                      prepend-icon="mdi-robot"
+                    >
+                      AI auto-accepted
+                    </v-chip>
+                  </div>
+
+                  <!-- Teacher review actions -->
+                  <div class="d-flex gap-2 mb-2">
+                    <v-btn
+                      size="small"
+                      color="success"
+                      variant="tonal"
+                      prepend-icon="mdi-check"
+                      :loading="reviewingQuestion === answer.questionNumber"
+                      :disabled="
+                        (reviewingQuestion !== null && reviewingQuestion !== answer.questionNumber) ||
+                        (answer.isCorrect && !answer.needsReview)
+                      "
+                      @click="reviewAnswer(answer, 'correct')"
+                    >
+                      Approve
+                    </v-btn>
+                    <v-btn
+                      size="small"
+                      color="error"
+                      variant="tonal"
+                      prepend-icon="mdi-close"
+                      :loading="reviewingQuestion === answer.questionNumber"
+                      :disabled="
+                        (reviewingQuestion !== null && reviewingQuestion !== answer.questionNumber) ||
+                        (!answer.isCorrect && !answer.needsReview)
+                      "
+                      @click="reviewAnswer(answer, 'incorrect')"
+                    >
+                      Override
+                    </v-btn>
+                  </div>
+
                   <!-- AI Explanation (if available) -->
                   <div
                     v-if="getAIComparison(answer.questionNumber, answer)"
@@ -411,6 +588,10 @@ const closeDialog = () => {
         </v-btn>
       </v-card-actions>
     </v-card>
+
+    <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="2500">
+      {{ snackbarText }}
+    </v-snackbar>
   </v-dialog>
 </template>
 

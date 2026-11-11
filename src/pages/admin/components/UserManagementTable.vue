@@ -43,21 +43,29 @@ const userToDelete = ref<User | null>(null)
 const page = ref(1)
 const perPage = ref(50)
 const pagination = ref<{ page: number; perPage: number; total?: number; nextPage?: number | null; lastPage?: number | null } | null>(null)
+const approvingId = ref<string | null>(null)
 
-
+const isPending = (user: User) =>
+  String(user.app_metadata?.status || '').toLowerCase() === 'pending'
 
 // Computed properties
 const filteredUsers = computed(() => {
-  if (!authStore.users) return []
-
-  if (!search.value) return authStore.users
+  const users = authStore.users ? [...authStore.users] : []
 
   const searchTerm = search.value.toLowerCase()
-  return authStore.users.filter(user =>
-    user.full_name?.toLowerCase().includes(searchTerm) ||
-    user.email?.toLowerCase().includes(searchTerm) ||
-    getRoleTitle(user.role_id, rolesStore.roles).toLowerCase().includes(searchTerm)
-  )
+  const matching = searchTerm
+    ? users.filter(user =>
+        user.full_name?.toLowerCase().includes(searchTerm) ||
+        user.email?.toLowerCase().includes(searchTerm) ||
+        getRoleTitle(user.role_id, rolesStore.roles).toLowerCase().includes(searchTerm)
+      )
+    : users
+
+  return matching.sort((a, b) => {
+    const aPending = isPending(a) ? 0 : 1
+    const bPending = isPending(b) ? 0 : 1
+    return aPending - bPending
+  })
 })
 
 // Methods
@@ -93,6 +101,28 @@ const editUser = (user: User) => {
 const deleteUser = (user: User) => {
   userToDelete.value = user
   deleteDialog.value = true
+}
+
+const approveUser = async (user: User) => {
+  approvingId.value = user.id
+  try {
+    const result = await authStore.updateUser(user.id, {
+      app_metadata: { ...(user.app_metadata || {}), status: 'active' },
+    })
+
+    if (result.error) {
+      toast.error('Failed to approve user: ' + getErrorMessage(result.error))
+      console.error('Error approving user:', result.error)
+      return
+    }
+
+    toast.success(`${user.full_name || user.email || 'User'} approved`)
+  } catch (error) {
+    toast.error('An unexpected error occurred while approving the user')
+    console.error('Unexpected error:', error)
+  } finally {
+    approvingId.value = null
+  }
 }
 
 // Event handlers
@@ -213,6 +243,12 @@ onMounted(async () => {
                   </v-chip>
                 </v-col>
 
+                <v-col v-if="isPending(user)" cols="12" class="pb-2">
+                  <v-chip color="warning" variant="tonal" size="small" block>
+                    Pending approval
+                  </v-chip>
+                </v-col>
+
                 <v-col cols="12">
                   <div class="d-flex align-center">
                     <v-icon size="16" color="grey" class="me-2">mdi-calendar</v-icon>
@@ -242,6 +278,19 @@ onMounted(async () => {
                 prepend-icon="mdi-pencil"
               >
                 Edit
+              </v-btn>
+
+              <v-btn
+                v-if="isPending(user)"
+                variant="text"
+                size="small"
+                color="success"
+                @click="approveUser(user)"
+                prepend-icon="mdi-check-circle"
+                :loading="approvingId === user.id"
+                :disabled="approvingId !== null && approvingId !== user.id"
+              >
+                Approve
               </v-btn>
 
               <v-btn

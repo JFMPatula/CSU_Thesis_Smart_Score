@@ -106,7 +106,11 @@ export class GroqAIService {
    * @param extractionPrompt - Student-specific extraction prompt
    * @returns Raw parsed JSON object
    */
-  async processStudentAnswerSheet(imageBase64: string, extractionPrompt: string): Promise<any> {
+  async processStudentAnswerSheet(
+    imageBase64: string,
+    extractionPrompt: string,
+    quizId?: number,
+  ): Promise<any> {
     console.log('ðŸ“„ Starting student answer sheet processing:', {
       imageBase64Length: imageBase64.length,
       imageSize: `~${(imageBase64.length * 0.75 / 1024).toFixed(2)} KB`,
@@ -116,7 +120,7 @@ export class GroqAIService {
     // Read the sheet directly with the vision model. This works for anonymous
     // students too (public quiz page) and handles handwriting much better than
     // the OCR + text-model round trip.
-    const structured = await extractImageJson(imageBase64, extractionPrompt);
+    const structured = await extractImageJson(imageBase64, extractionPrompt, quizId);
     const structuredAnswers = structured?.data?.answers;
     if (structured && Array.isArray(structuredAnswers) && structuredAnswers.length > 0) {
       console.log('âœ… Structured vision extraction complete:', {
@@ -404,7 +408,7 @@ Guidelines:
     });
 
     try {
-      // Qwen3 models prepend a `thinking` reasoning block before the answer.
+      // Some reasoning models prepend a `thinking` block before the answer.
       // Strip it so JSON extraction is reliable.
       const cleanedContent = this.stripThinkingPreamble(content);
 
@@ -566,7 +570,7 @@ Guidelines:
   }
 
   /**
-   * Qwen3 reasoning models emit a `thinking` block that ends with a
+   * Some reasoning models emit a `thinking` block that ends with a
    * ` response` marker. Remove everything before it to leave clean JSON.
    */
   private stripThinkingPreamble(text: string): string {

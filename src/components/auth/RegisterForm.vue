@@ -49,14 +49,13 @@
               :error-messages="errors.role"
               prepend-inner-icon="mdi-account-group"
               class="mb-4"
-              hint="Select your role in the organization"
+              hint="Student accounts can link previous quiz results after signing in."
               persistent-hint
               :loading="rolesStore.loading"
               :disabled="rolesStore.loading"
             />
           </v-col>
         </v-row>
-
 
 
         <v-row no-gutters>
@@ -188,9 +187,9 @@ const registerForm = reactive({
 // Computed properties for role options
 const roleOptions = computed(() => {
   return rolesStore.roles
-    .filter(role => role.id !== 1) // Exclude admin role (ID 1)
+    .filter(role => String(role.title || '').toLowerCase() === 'student')
     .map(role => ({
-      title: role.title || 'Untitled Role',
+      title: role.title || 'Student',
       value: role.id
     }));
 });
@@ -258,8 +257,8 @@ const handleRegister = async () => {
     } else {
       toast.success(
         result.needsEmailConfirmation
-          ? "Account created! Check your email to confirm before signing in."
-          : "Account created successfully! You can now sign in."
+          ? "Account created! Confirm your email, then sign in and open My Results to link your previous quiz results."
+          : "Account created! Sign in, then open My Results to link your previous quiz results."
       );
       resetForm();
       // Switch back to login form after successful registration
@@ -286,6 +285,12 @@ const resetForm = () => {
 // Load roles on component mount
 onMounted(async () => {
   await rolesStore.fetchRoles();
+  const studentRole = rolesStore.roles.find(
+    role => String(role.title || '').toLowerCase() === 'student'
+  );
+  if (studentRole && !registerForm.role) {
+    registerForm.role = studentRole.id;
+  }
 });
 
 // Expose methods for parent component

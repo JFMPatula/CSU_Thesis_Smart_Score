@@ -1,4 +1,4 @@
-import { applyRateLimit, getCaller, parseBody, roleIdOf } from './_lib/http.js'
+import { applyRateLimit, getCaller, isPendingUser, parseBody, roleIdOf } from './_lib/http.js'
 
 const DEFAULT_MODEL = 'openai/gpt-oss-120b'
 const ALLOWED_ROLES = new Set(['system', 'user', 'assistant'])
@@ -28,7 +28,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const callerRole = roleIdOf(caller.user)
-  if (callerRole !== 1 && callerRole !== 2) {
+  if (isPendingUser(caller.user) || (callerRole !== 1 && callerRole !== 2)) {
     res.status(403).json({ error: 'Teacher or Admin access required' })
     return
   }

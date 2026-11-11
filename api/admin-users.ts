@@ -133,6 +133,18 @@ export default async function handler(req: any, res: any) {
           }
           appMetadata.role = roleId
         }
+        if (appMetadata.status !== undefined) {
+          const status = String(appMetadata.status).toLowerCase()
+          if (status !== 'pending' && status !== 'active') {
+            res.status(400).json({ error: 'Invalid account status' })
+            return
+          }
+          if (id === caller.id && status === 'pending') {
+            res.status(400).json({ error: 'You cannot mark your own account as pending' })
+            return
+          }
+          appMetadata.status = status
+        }
         updates.app_metadata = appMetadata
       }
 

@@ -110,7 +110,11 @@ export function useAnswerProcessor() {
 
       let extractedAnswers
       try {
-        extractedAnswers = await groqService!.processStudentAnswerSheet(imageBase64, extractionPrompt)
+        extractedAnswers = await groqService!.processStudentAnswerSheet(
+          imageBase64,
+          extractionPrompt,
+          Number(answerKeyData?.id) || undefined,
+        )
 
         // Log the extracted answers result
         console.log('✅ Groq AI Vision Processing Result:', {
