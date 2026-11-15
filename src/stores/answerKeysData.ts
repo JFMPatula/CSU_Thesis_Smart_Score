@@ -24,6 +24,9 @@ export interface AnswerKey {
   created_by?: string;
   answer_keys?: any; // JSONB field
   answer_images?: string;
+  release_feedback?: boolean;
+  access_code?: string | null;
+  requires_access_code?: boolean;
 }
 
 /**

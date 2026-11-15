@@ -21,6 +21,8 @@ const formData = ref({
   title: '',
   description: '',
   is_active: true,
+  release_feedback: false,
+  access_code: '',
   answer_keys: null as any,
   answer_images: null as string | null
 })
@@ -207,6 +209,8 @@ const resetForm = () => {
     title: '',
     description: '',
     is_active: true,
+    release_feedback: false,
+    access_code: '',
     answer_keys: null,
     answer_images: null
   }
@@ -221,6 +225,8 @@ const loadAnswerKeyData = () => {
       title: selectedAnswerKey.value.title,
       description: selectedAnswerKey.value.description || '',
       is_active: selectedAnswerKey.value.is_active,
+      release_feedback: selectedAnswerKey.value.release_feedback === true,
+      access_code: selectedAnswerKey.value.access_code || '',
       answer_keys: selectedAnswerKey.value.answer_keys,
       answer_images: selectedAnswerKey.value.answer_images || null
     }
@@ -260,6 +266,8 @@ const handleSubmit = async () => {
       title: formData.value.title,
       description: formData.value.description,
       is_active: formData.value.is_active,
+      release_feedback: formData.value.release_feedback,
+      access_code: formData.value.access_code.trim() || null,
       answer_keys: formData.value.answer_keys,
       answer_images: imageUrl || undefined
     }
@@ -342,8 +350,31 @@ watch(isOpen, (newVal) => {
               />
             </v-col>
 
+            <!-- Feedback release -->
+            <v-col cols="12">
+              <v-switch
+                v-model="formData.release_feedback"
+                label="Release answer feedback to students"
+                color="primary"
+                inset
+                hint="When off, students only see their score and total correct count."
+                persistent-hint
+              />
+            </v-col>
 
-
+            <!-- Optional access code -->
+            <v-col cols="12">
+              <v-text-field
+                v-model="formData.access_code"
+                label="Access code (optional)"
+                variant="outlined"
+                prepend-inner-icon="mdi-key-outline"
+                hint="Students must enter this code before submitting the quiz."
+                persistent-hint
+                clearable
+                autocomplete="off"
+              />
+            </v-col>
 
             <!-- Image Upload with Dropzone -->
             <v-col cols="12">

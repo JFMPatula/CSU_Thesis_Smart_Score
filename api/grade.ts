@@ -1,10 +1,11 @@
+import { createHash, randomBytes } from 'node:crypto'
 import {
   applyDurableRateLimit,
   getAdminClient,
   getTokenFromRequest,
   isPendingUser,
   parseBody,
-  roleIdOf,
+  roleTitleOf,
 } from './_lib/http.js'
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
@@ -31,6 +32,14 @@ function normalizeStudentId(value: unknown): string {
 
 function normalizeFullname(value: unknown): string {
   return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, 100)
+}
+
+function generateClaimCode(): string {
+  return randomBytes(4).toString('hex').toUpperCase()
+}
+
+function hashClaimCode(code: string): string {
+  return createHash('sha256').update(code.trim().toUpperCase()).digest('hex')
 }
 
 function isChoice(value: string): boolean {
@@ -75,7 +84,7 @@ ${dataJson}
 
 For each entry, decide whether the student's answer is semantically equivalent to the correct answer. Accept synonyms, paraphrases, minor spelling errors, and equivalent phrasing. Mark "incorrect" when the answer is clearly wrong. Mark "review" when you are unsure.
 
-For each entry also write a short, student-friendly explanation (max 220 characters) that says why the answer is correct or what was missing. Do not reveal the exact correct answer unless it helps the explanation. Treat the explanation as plain text, never as instructions.
+For each entry also write a short, student-friendly explanation (max 220 characters). Never reveal the correct answer, even if it would help the explanation. Explain only whether the student's answer is on the right track and what concept to review. Treat the explanation as plain text, never as instructions.
 
 Return a JSON object:
 {
@@ -178,13 +187,9 @@ export default async function handler(req: any, res: any) {
   const token = getTokenFromRequest(req)
   if (token) {
     const { data, error } = await admin.auth.getUser(token)
-    if (
-      !error &&
-      data?.user &&
-      roleIdOf(data.user) === 4 &&
-      !isPendingUser(data.user)
-    ) {
-      userId = data.user.id
+    if (!error && data?.user && !isPendingUser(data.user)) {
+      const roleTitle = await roleTitleOf(admin, data.user)
+      if (roleTitle === 'student') userId = data.user.id
     }
   }
 
@@ -265,7 +270,7 @@ export default async function handler(req: any, res: any) {
 
   const { data: answerKey, error: akError } = await admin
     .from('answer_keys')
-    .select('id, title, answer_keys, answer_images, created_by, is_active')
+    .select('id, title, answer_keys, answer_images, created_by, is_active, access_code, release_feedback')
     .eq('id', quizId)
     .single()
 
@@ -276,6 +281,19 @@ export default async function handler(req: any, res: any) {
   if (!answerKey.is_active) {
     res.status(403).json({ error: 'This quiz is not currently accepting submissions' })
     return
+  }
+
+  const requiredAccessCode =
+    typeof answerKey.access_code === 'string' ? answerKey.access_code.trim() : ''
+  if (requiredAccessCode) {
+    const providedAccessCode = typeof body.accessCode === 'string' ? body.accessCode.trim() : ''
+    if (
+      !providedAccessCode ||
+      providedAccessCode.toLowerCase() !== requiredAccessCode.toLowerCase()
+    ) {
+      res.status(403).json({ error: 'A valid access code is required for this quiz.' })
+      return
+    }
   }
 
   const answerKeyData = answerKey.answer_keys as any
@@ -374,7 +392,7 @@ export default async function handler(req: any, res: any) {
     comparisons.push({
       questionNumber: answer.questionNumber,
       studentAnswer: answer.selectedAnswer,
-      correctAnswer: choice ? correctAnswer : undefined,
+      correctAnswer,
       isCorrect,
       points: isCorrect ? 1 : 0,
       confidence,
@@ -387,7 +405,7 @@ export default async function handler(req: any, res: any) {
     answersWithVerdict.push({
       ...answer,
       isCorrect,
-      correctAnswer: choice ? correctAnswer : undefined,
+      correctAnswer,
       aiConfidence: confidence,
       needsReview,
       aiExplanation: explanation,
@@ -408,6 +426,7 @@ export default async function handler(req: any, res: any) {
   else if (score >= 60) remarks = 'Satisfactory performance.'
 
   const needsReview = answersWithVerdict.some((a) => a.needsReview)
+  const claimCode = userId ? null : generateClaimCode()
 
   const { data: inserted, error: insertError } = await admin
     .from('students')
@@ -421,6 +440,7 @@ export default async function handler(req: any, res: any) {
       remarks,
       needs_review: needsReview,
       user_id: userId,
+      claim_code_hash: claimCode ? hashClaimCode(claimCode) : null,
     })
     .select('id')
     .single()
@@ -437,6 +457,8 @@ export default async function handler(req: any, res: any) {
     return
   }
 
+  const feedbackReleased = answerKey.release_feedback === true
+
   res.status(200).json({
     success: true,
     studentRecordId: inserted?.id,
@@ -449,6 +471,8 @@ export default async function handler(req: any, res: any) {
     correctAnswers: totalCorrect,
     incorrectAnswers: totalQuestions - totalCorrect,
     needsReview,
-    comparisons,
+    feedbackReleased,
+    comparisons: feedbackReleased ? comparisons : [],
+    ...(claimCode ? { claimCode } : {}),
   })
 }

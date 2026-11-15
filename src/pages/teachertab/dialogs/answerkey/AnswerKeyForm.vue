@@ -37,6 +37,34 @@
           />
         </v-col>
 
+        <!-- Feedback release -->
+        <v-col cols="12">
+          <v-switch
+            :model-value="formData.release_feedback"
+            @update:model-value="updateField('release_feedback', $event)"
+            label="Release answer feedback to students"
+            color="primary"
+            inset
+            hint="When off, students only see their score and total correct count."
+            persistent-hint
+          />
+        </v-col>
+
+        <!-- Optional access code -->
+        <v-col cols="12">
+          <v-text-field
+            :model-value="formData.access_code"
+            @update:model-value="updateField('access_code', $event || '')"
+            label="Access code (optional)"
+            variant="outlined"
+            prepend-inner-icon="mdi-key-outline"
+            hint="Students must enter this code before submitting the quiz."
+            persistent-hint
+            clearable
+            autocomplete="off"
+          />
+        </v-col>
+
         <!-- Selected Image Display -->
         <v-col v-if="imagePreview" cols="12">
           <v-card variant="outlined" class="pa-2">
@@ -200,6 +228,8 @@ interface FormData {
   title: string
   description: string
   is_active: boolean
+  release_feedback: boolean
+  access_code: string
   answer_images: string | null
   answer_keys: any
 }

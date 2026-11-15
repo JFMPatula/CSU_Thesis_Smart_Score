@@ -289,6 +289,9 @@ export const useAuthUserStore = defineStore("authUser", () => {
         return { error: pendingApprovalError() };
       }
 
+      const roleId = user.app_metadata?.role;
+      const roleTitle = await fetchRoleTitle(roleId);
+
       const userData: UserData = {
         id: user.id,
         email: user.email,
@@ -296,7 +299,8 @@ export const useAuthUserStore = defineStore("authUser", () => {
         user_metadata: user.user_metadata,
         app_metadata: user.app_metadata,
         full_name: user.user_metadata?.full_name,
-        role_id: user.app_metadata?.role,
+        role_id: roleId,
+        role_title: roleTitle,
         status: user.app_metadata?.status,
       };
 

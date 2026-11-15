@@ -114,7 +114,8 @@ export const useStudentQuizStore = defineStore('studentQuiz', () => {
     const gradeStudentSubmission = async (
         studentAnswers: StudentAnswer[],
         answerKeyId: number,
-        student: { fullname: string; student_id: string; imageUrl?: string | null }
+        student: { fullname: string; student_id: string; imageUrl?: string | null },
+        accessCode?: string
     ) => {
         const response = await fetch('/api/grade', {
             method: 'POST',
@@ -125,6 +126,7 @@ export const useStudentQuizStore = defineStore('studentQuiz', () => {
                 fullname: student.fullname,
                 answers: studentAnswers,
                 imageUrl: student.imageUrl ?? null,
+                accessCode: accessCode?.trim() || null,
             }),
         });
 
@@ -148,7 +150,8 @@ export const useStudentQuizStore = defineStore('studentQuiz', () => {
             description: currentQuiz.value.description,
             isActive: currentQuiz.value.is_active,
             qrLink: currentQuiz.value.qr_link,
-            answerImageUrl: currentQuiz.value.answer_images
+            answerImageUrl: currentQuiz.value.answer_images,
+            requiresAccessCode: currentQuiz.value.requires_access_code === true,
         };
     };
 

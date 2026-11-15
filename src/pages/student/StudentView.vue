@@ -35,6 +35,7 @@ const submittedImage = ref<File | Blob | null>(null);
 const scoreResults = ref<any>(null);
 const submissionData = ref<any>(null);
 const quizNotFound = ref(false);
+const accessCode = ref("");
 
 // Which dialog should open after the reminders are acknowledged
 const remindersNext = ref<'upload' | 'camera'>('upload');
@@ -51,6 +52,11 @@ const quizDescription = computed(
   () => quizInfo.value?.description || "No description available.",
 );
 const isQuizActive = computed(() => quizInfo.value?.isActive || false);
+const requiresAccessCode = computed(() => quizInfo.value?.requiresAccessCode === true);
+const hasAccessCode = computed(
+  () => !requiresAccessCode.value || accessCode.value.trim().length > 0,
+);
+const canSubmitQuiz = computed(() => isQuizActive.value && hasAccessCode.value);
 const isQuizLoaded = computed(() => studentQuizStore.isQuizLoaded);
 const loading = computed(
   () => !isQuizLoaded.value && !quizNotFound.value && quizId.value !== "",
@@ -157,6 +163,11 @@ const handleAnswersSubmit = async (finalAnswers: any) => {
       return;
     }
 
+    if (requiresAccessCode.value && !accessCode.value.trim()) {
+      toast.error("Enter the access code before submitting your answers.");
+      return;
+    }
+
     console.log("📤 Submitting answers...");
 
     // Upload image to storage first
@@ -178,6 +189,7 @@ const handleAnswersSubmit = async (finalAnswers: any) => {
           student_id: finalAnswers.studentId,
           imageUrl,
         },
+        accessCode.value,
       )),
       checkingTimeMs: Math.round(performance.now() - gradedAt),
     };
@@ -247,6 +259,25 @@ onUnmounted(() => {
               {{ quizDescription }}
             </v-card-text>
 
+            <v-card v-if="requiresAccessCode" variant="outlined" class="mb-6">
+              <v-card-text>
+                <div class="text-subtitle-2 font-weight-medium mb-2">
+                  <v-icon size="small" class="mr-1">mdi-lock-outline</v-icon>
+                  Access code required
+                </div>
+                <v-text-field
+                  v-model="accessCode"
+                  label="Enter the access code given by your teacher"
+                  variant="outlined"
+                  density="comfortable"
+                  prepend-inner-icon="mdi-key"
+                  autocomplete="off"
+                  :disabled="!isQuizActive"
+                  hide-details
+                />
+              </v-card-text>
+            </v-card>
+
             <!-- Action Buttons Section -->
             <div class="text-center">
               <p class="text-body-2 text-medium-emphasis mb-4">
@@ -261,7 +292,7 @@ onUnmounted(() => {
                     color="primary"
                     variant="flat"
                     @click="openCameraDialog"
-                    :disabled="!isQuizActive"
+                    :disabled="!canSubmitQuiz"
                     block
                     :height="isMobile ? 52 : 60"
                   >
@@ -277,7 +308,7 @@ onUnmounted(() => {
                     color="primary"
                     variant="outlined"
                     @click="openUploadDialog"
-                    :disabled="!isQuizActive"
+                    :disabled="!canSubmitQuiz"
                     block
                     :height="isMobile ? 52 : 60"
                   >
@@ -331,8 +362,8 @@ onUnmounted(() => {
                 class="mt-4"
               >
                 This quiz is currently inactive. You can still view your
-                previous submissions and see correct answers with AI
-                explanations.
+                previous submissions, but answer feedback is only shown when
+                your teacher releases it.
               </v-alert>
             </div>
 

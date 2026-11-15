@@ -1,7 +1,9 @@
-import { applyRateLimit, getAdminClient, getCaller, isPendingUser, roleIdOf } from './_lib/http.js'
+import { applyRateLimit, getAdminClient, getCaller, isPendingUser, roleTitleOf } from './_lib/http.js'
 
 const ALLOWED_BUCKETS = new Set(['answer_keys', 'student-answers', 'announcements'])
-const AUTH_REQUIRED_BUCKETS = new Set(['answer_keys', 'student-answers'])
+// Student answer images are uploaded anonymously under unguessable UUID paths.
+// The answer-key bucket stays teacher/admin-only.
+const AUTH_REQUIRED_BUCKETS = new Set(['answer_keys'])
 const DEFAULT_EXPIRES = 3600
 const MAX_EXPIRES = 86_400
 
@@ -45,8 +47,8 @@ export default async function handler(req: any, res: any) {
       return
     }
     if (bucket === 'answer_keys') {
-      const callerRole = roleIdOf(caller.user)
-      if (callerRole !== 1 && callerRole !== 2) {
+      const roleTitle = await roleTitleOf(caller.admin, caller.user)
+      if (roleTitle !== 'teacher' && roleTitle !== 'admin') {
         res.status(403).json({ error: 'Teacher or Admin access required' })
         return
       }

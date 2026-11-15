@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed } from "vue";
 import {
   getScoreColor,
   getGradeLetter,
@@ -7,7 +7,6 @@ import {
   getAnswerResultIcon,
   getPassStatus,
 } from "../utils/helpers";
-import { useAnswerKeysStore } from "@/stores/answerKeysData";
 
 // Props
 interface Props {
@@ -32,6 +31,8 @@ interface Props {
       explanation?: string;
     }>;
     checkingTimeMs?: number;
+    feedbackReleased?: boolean;
+    claimCode?: string;
   };
 }
 
@@ -46,18 +47,16 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-// Store
-const answerKeysStore = useAnswerKeysStore();
-
 // State
-const currentQuiz = ref<any>(null);
+const copiedClaimCode = ref(false);
 
 // Computed
 const scorePercentage = computed(() => props.scoreData?.score || 0);
 const scoreColor = computed(() => getScoreColor(scorePercentage.value));
 const scoreGrade = computed(() => getGradeLetter(scorePercentage.value));
 const passStatus = computed(() => getPassStatus(scorePercentage.value));
-const isQuizActive = computed(() => currentQuiz.value?.is_active || false);
+const feedbackReleased = computed(() => props.scoreData?.feedbackReleased === true);
+const claimCode = computed(() => props.scoreData?.claimCode || "");
 
 const checkingTimeLabel = computed(() => {
   const ms = props.scoreData?.checkingTimeMs;
@@ -66,15 +65,16 @@ const checkingTimeLabel = computed(() => {
   return `${(ms / 1000).toFixed(2)} s`;
 });
 
-/**
- * Fetch quiz data to check if it's active
- */
-const fetchQuizData = async () => {
-  if (props.quizId) {
-    const { data } = await answerKeysStore.fetchAnswerKeyById(props.quizId);
-    if (data) {
-      currentQuiz.value = data;
-    }
+const copyClaimCode = async () => {
+  if (!claimCode.value) return;
+  try {
+    await navigator.clipboard.writeText(claimCode.value);
+    copiedClaimCode.value = true;
+    setTimeout(() => {
+      copiedClaimCode.value = false;
+    }, 2000);
+  } catch {
+    copiedClaimCode.value = false;
   }
 };
 
@@ -85,25 +85,6 @@ const handleClose = () => {
   emit("update:modelValue", false);
   emit("close");
 };
-
-// Watch for quizId changes and fetch quiz data
-onMounted(() => {
-  if (props.quizId) {
-    fetchQuizData();
-  }
-});
-
-// Watch for changes in quizId
-watch(
-  () => props.quizId,
-  (newQuizId) => {
-    if (newQuizId) {
-      fetchQuizData();
-    }
-  },
-);
-
-// Helper functions are imported from utils
 </script>
 
 <template>
@@ -156,6 +137,38 @@ watch(
             </v-row>
           </v-card-text>
         </v-card>
+
+        <v-alert
+          v-if="claimCode"
+          type="warning"
+          variant="tonal"
+          class="mb-4"
+        >
+          <div class="d-flex align-center flex-wrap">
+            <div class="flex-grow-1">
+              <div class="font-weight-bold mb-1">Save this claim code</div>
+              <div class="text-body-2">
+                You submitted without signing in. Use this code with your Student ID and full
+                name to link this result to your account later.
+              </div>
+            </div>
+            <div class="d-flex align-center ml-2">
+              <v-chip color="warning" variant="flat" size="large" class="font-weight-bold">
+                {{ claimCode }}
+              </v-chip>
+              <v-btn
+                icon
+                variant="text"
+                size="small"
+                class="ml-1"
+                :title="copiedClaimCode ? 'Copied' : 'Copy claim code'"
+                @click="copyClaimCode"
+              >
+                <v-icon>{{ copiedClaimCode ? "mdi-check" : "mdi-content-copy" }}</v-icon>
+              </v-btn>
+            </div>
+          </div>
+        </v-alert>
 
         <!-- Score Summary -->
         <v-card variant="tonal" :color="scoreColor" class="mb-4">
@@ -231,6 +244,16 @@ watch(
           </v-col>
         </v-row>
 
+        <v-alert
+          v-if="!feedbackReleased"
+          type="info"
+          variant="tonal"
+          class="mb-4"
+        >
+          Your teacher has not released answer feedback yet. Your score is shown, but correct
+          answers and explanations will appear after your teacher releases them.
+        </v-alert>
+
         <!-- Detailed Results -->
         <v-card
           variant="outlined"
@@ -284,7 +307,7 @@ watch(
                         </v-chip>
                         <v-chip
                           class="mx-2"
-                          v-if="!isQuizActive"
+                          v-if="feedbackReleased"
                           color="primary"
                           size="small"
                           variant="tonal"
@@ -296,7 +319,7 @@ watch(
 
                     <!-- AI Explanation (if available) -->
                     <div
-                      v-if="comparison.explanation"
+                      v-if="feedbackReleased && comparison.explanation"
                       class="text-caption text-medium-emphasis mt-1 ml-2"
                     >
                       <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>

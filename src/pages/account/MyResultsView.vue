@@ -23,10 +23,13 @@ const loading = ref(false)
 const claiming = ref(false)
 const studentId = ref('')
 const fullname = ref('')
+const claimCode = ref('')
 const selected = ref<MyResult | null>(null)
 const showDetails = ref(false)
 
-const isStudent = computed(() => Number(authStore.userData?.role_id || 0) === 4)
+const isStudent = computed(
+  () => String(authStore.userData?.role_title || '').trim().toLowerCase() === 'student',
+)
 const hasResults = computed(() => results.value.length > 0)
 
 const loadResults = async () => {
@@ -49,7 +52,11 @@ const claimResults = async () => {
   }
 
   claiming.value = true
-  const { count, error } = await studentsStore.claimStudentRecords(studentId.value, fullname.value)
+  const { count, error } = await studentsStore.claimStudentRecords(
+    studentId.value,
+    fullname.value,
+    claimCode.value,
+  )
   claiming.value = false
 
   if (error) {
@@ -61,6 +68,7 @@ const claimResults = async () => {
     toast.success(`Linked ${count} previous result${count === 1 ? '' : 's'}.`)
     studentId.value = ''
     fullname.value = ''
+    claimCode.value = ''
     await loadResults()
     return
   }
@@ -120,10 +128,11 @@ onMounted(async () => {
             <v-card-text>
               <p class="text-body-2 text-medium-emphasis mb-4">
                 If you answered a quiz before creating your account, enter the same Student ID and
-                full name you used during submission. We will link those results to this account.
+                full name you used during submission. If you submitted while signed out, also enter
+                the claim code shown after submission. We will link those results to this account.
               </p>
               <v-row>
-                <v-col cols="12" md="4">
+                <v-col cols="12" md="3">
                   <v-text-field
                     v-model="studentId"
                     label="Student ID"
@@ -134,7 +143,7 @@ onMounted(async () => {
                     @keyup.enter="claimResults"
                   />
                 </v-col>
-                <v-col cols="12" md="4">
+                <v-col cols="12" md="3">
                   <v-text-field
                     v-model="fullname"
                     label="Full Name"
@@ -145,7 +154,21 @@ onMounted(async () => {
                     @keyup.enter="claimResults"
                   />
                 </v-col>
-                <v-col cols="12" md="4" class="d-flex align-center">
+                <v-col cols="12" md="3">
+                  <v-text-field
+                    v-model="claimCode"
+                    label="Claim Code"
+                    variant="outlined"
+                    density="comfortable"
+                    prepend-inner-icon="mdi-key-variant"
+                    autocomplete="off"
+                    :disabled="claiming"
+                    hint="Only needed for submissions made while signed out"
+                    persistent-hint
+                    @keyup.enter="claimResults"
+                  />
+                </v-col>
+                <v-col cols="12" md="3" class="d-flex align-center">
                   <v-btn
                     color="primary"
                     variant="flat"

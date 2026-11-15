@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
-import { useAnswerKeysStore } from '@/stores/answerKeysData';
+import { computed } from 'vue';
 import type { Student } from '@/stores/studentsData';
 import { getScoreColor, getGradeLetter, formatDate, getQuestionNumber } from '../utils/helpers';
-import { getAnswerValue, getCorrectAnswerForQuestion, isAnswerCorrect } from '../utils/getHelpers';
+import { getAnswerValue } from '../utils/getHelpers';
 
 // Props
 interface Props {
@@ -22,69 +21,27 @@ const emit = defineEmits<{
   'close': [];
 }>();
 
-// Store
-const answerKeysStore = useAnswerKeysStore();
-
-// State
-const answerKeyData = ref<any>(null);
-const isLoading = ref(false);
-
 // Computed
 const passStatus = computed(() => (props.student?.score ?? 0) >= 75);
-const isQuizActive = computed(() => answerKeyData.value?.is_active || false);
+const feedbackReleased = computed(() => props.student?.feedback_released === true);
 
 /**
- * Fetch answer key data when student is provided
+ * Get the correct answer stored with the graded response. The server strips
+ * this field unless the teacher has released feedback.
  */
-const fetchAnswerKeyData = async () => {
-  if (!props.student?.answer_key_id) return;
-
-  try {
-    isLoading.value = true;
-    const { data, error } = await answerKeysStore.fetchPublicAnswerKeyById(props.student.answer_key_id);
-
-    if (error) {
-      console.error('Error fetching answer key:', error);
-      return;
-    }
-
-    if (data) {
-      answerKeyData.value = data;
-    }
-  } catch (error) {
-    console.error('Error fetching answer key data:', error);
-  } finally {
-    isLoading.value = false;
-  }
+const getCorrectAnswer = (_questionNumber: string | number, answerObj?: any) => {
+  if (!feedbackReleased.value || !answerObj) return '';
+  const stored = answerObj.correctAnswerText || answerObj.correctAnswer;
+  return typeof stored === 'string' ? stored : '';
 };
 
 /**
- * Get correct answer from answer key data
+ * Per-question verdict is only shown after feedback is released. The server
+ * removes `isCorrect` from unreleased records.
  */
-const getCorrectAnswer = (questionNumber: string | number, answerObj?: any) => {
-  if (answerObj) {
-    const stored = answerObj.correctAnswerText || answerObj.correctAnswer;
-    if (typeof stored === 'string' && stored) return stored;
-  }
-  return getCorrectAnswerForQuestion(questionNumber, answerKeyData.value);
-};
-
-/**
- * Check if student answer is correct
- *
- * Priority:
- *  1. Stored verdict persisted at grading time (single source of truth, so the
- *     teacher view shows the exact same per-question result as the student).
- *  2. Deterministic exact-match fallback for legacy records (no live AI — live
- *     AI is non-deterministic and made the student and teacher views disagree).
- */
-const isAnswerCorrectLocal = (studentAnswer: string, questionNumber: string | number, answerObj?: any) => {
-  if (answerObj && typeof answerObj.isCorrect === 'boolean') {
-    return answerObj.isCorrect;
-  }
-
-  // Deterministic fallback shared with the teacher view.
-  return isAnswerCorrect(studentAnswer, questionNumber, answerKeyData.value);
+const isAnswerCorrectLocal = (_studentAnswer: string, _questionNumber: string | number, answerObj?: any) => {
+  if (!feedbackReleased.value) return false;
+  return answerObj && answerObj.isCorrect === true;
 };
 
 /**
@@ -107,30 +64,9 @@ const getAIComparison = (_questionNumber: string | number, answerObj?: any) => {
  * Handle dialog close
  */
 const handleClose = () => {
-  answerKeyData.value = null;
   emit('update:modelValue', false);
   emit('close');
 };
-
-/**
- * Watch for student changes
- */
-watch(() => props.student, (newStudent) => {
-  if (newStudent && props.modelValue) {
-    fetchAnswerKeyData();
-  }
-}, { immediate: true });
-
-/**
- * Watch for dialog open/close
- */
-watch(() => props.modelValue, (isOpen) => {
-  if (isOpen && props.student) {
-    fetchAnswerKeyData();
-  } else if (!isOpen) {
-    answerKeyData.value = null;
-  }
-});
 </script>
 
 <template>
@@ -161,17 +97,7 @@ watch(() => props.modelValue, (isOpen) => {
       <v-divider />
 
       <v-card-text class="pa-4">
-        <!-- Loading State -->
-        <div v-if="isLoading" class="text-center pa-6">
-          <v-progress-circular
-            color="primary"
-            indeterminate
-            size="64"
-          />
-          <div class="text-h6 mt-3">Loading student details...</div>
-        </div>
-
-        <div v-else>
+        <div>
           <!-- Student Information -->
           <v-card variant="outlined" class="mb-4">
             <v-card-text class="pa-4">
@@ -238,6 +164,17 @@ watch(() => props.modelValue, (isOpen) => {
 
             <v-divider />
 
+            <v-alert
+              v-if="!feedbackReleased"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="ma-3"
+            >
+              Answer feedback has not been released by your teacher yet. Your answers are shown,
+              but correct answers, explanations, and per-question verdicts are hidden.
+            </v-alert>
+
             <div class="results-container" style="max-height: 300px; overflow-y: auto;">
               <v-list density="comfortable">
                 <!-- Object format answers -->
@@ -262,14 +199,14 @@ watch(() => props.modelValue, (isOpen) => {
                           <span class="text-body-1">Question {{ getQuestionNumber(questionKey) }}</span>
                           <div class="d-flex gap-2">
                             <v-chip
-                              :color="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey), answer) ? 'success' : 'error'"
+                              :color="feedbackReleased ? (isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey), answer) ? 'success' : 'error') : 'grey'"
                               size="small"
                               variant="outlined"
                             >
                               Your Answer: {{ getAnswerValue(answer) }}
                             </v-chip>
                             <v-chip
-                              v-if="!isQuizActive"
+                              v-if="feedbackReleased"
                               color="primary"
                               size="small"
                               variant="tonal"
@@ -281,7 +218,7 @@ watch(() => props.modelValue, (isOpen) => {
 
                         <!-- AI Explanation (if available) -->
                         <div
-                          v-if="getAIComparison(getQuestionNumber(questionKey), answer)"
+                          v-if="feedbackReleased && getAIComparison(getQuestionNumber(questionKey), answer)"
                           class="text-caption text-medium-emphasis mt-1 ml-2"
                         >
                           <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
@@ -300,6 +237,7 @@ watch(() => props.modelValue, (isOpen) => {
 
                     <template #append>
                       <v-icon
+                        v-if="feedbackReleased"
                         :color="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey), answer) ? 'success' : 'error'"
                         :icon="isAnswerCorrectLocal(getAnswerValue(answer), getQuestionNumber(questionKey), answer) ? 'mdi-check-circle' : 'mdi-close-circle'"
                       />
@@ -329,14 +267,14 @@ watch(() => props.modelValue, (isOpen) => {
                           <span class="text-body-1">Question {{ answer?.questionNumber || index + 1 }}</span>
                           <div class="d-flex gap-2">
                             <v-chip
-                              :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1, answer) ? 'success' : 'error'"
+                              :color="feedbackReleased ? (isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1, answer) ? 'success' : 'error') : 'grey'"
                               size="small"
                               variant="outlined"
                             >
                               Your Answer: {{ getAnswerValue(answer) }}
                             </v-chip>
                             <v-chip
-                              v-if="!isQuizActive"
+                              v-if="feedbackReleased"
                               color="primary"
                               size="small"
                               variant="tonal"
@@ -348,7 +286,7 @@ watch(() => props.modelValue, (isOpen) => {
 
                         <!-- AI Explanation (if available) -->
                         <div
-                          v-if="getAIComparison(answer?.questionNumber || index + 1, answer)"
+                          v-if="feedbackReleased && getAIComparison(answer?.questionNumber || index + 1, answer)"
                           class="text-caption text-medium-emphasis mt-1 ml-2"
                         >
                           <v-icon size="x-small" class="mr-1">mdi-robot</v-icon>
@@ -367,6 +305,7 @@ watch(() => props.modelValue, (isOpen) => {
 
                     <template #append>
                       <v-icon
+                        v-if="feedbackReleased"
                         :color="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1, answer) ? 'success' : 'error'"
                         :icon="isAnswerCorrectLocal(getAnswerValue(answer), answer?.questionNumber || index + 1, answer) ? 'mdi-check-circle' : 'mdi-close-circle'"
                       />

@@ -17,6 +17,9 @@ export interface Student {
     student_id: string; // Required, cannot be null
     user_id?: string | null;
     needs_review?: boolean;
+    feedback_released?: boolean;
+    quiz_title?: string | null;
+    quiz_description?: string | null;
 }
 
 /**
@@ -163,7 +166,7 @@ export const useStudentsStore = defineStore('studentsData', () => {
      * Claim previously submitted (anonymous) records for the signed-in student.
      * Matches on the same student ID and full name used during the quiz.
      */
-    const claimStudentRecords = async (studentId: string, fullname: string) => {
+    const claimStudentRecords = async (studentId: string, fullname: string, claimCode?: string) => {
         loading.value = true;
         error.value = null;
 
@@ -171,6 +174,7 @@ export const useStudentsStore = defineStore('studentsData', () => {
             const { data, error: claimError } = await supabase.rpc('claim_student_records', {
                 p_student_id: studentId.trim(),
                 p_fullname: fullname.trim(),
+                p_claim_code: claimCode?.trim() || null,
             });
 
             if (claimError) throw claimError;

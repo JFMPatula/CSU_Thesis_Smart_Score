@@ -45,6 +45,8 @@ const formData = ref({
   title: '',
   description: '',
   is_active: true,
+  release_feedback: false,
+  access_code: '',
   answer_images: null as string | null,
   answer_keys: null as any // JSONB field for processed answer key data
 })
@@ -525,6 +527,8 @@ const resetForm = () => {
     title: '',
     description: '',
     is_active: true,
+    release_feedback: false,
+    access_code: '',
     answer_images: null,
     answer_keys: null
   }
@@ -666,6 +670,8 @@ const handleSubmit = async () => {
       title: formData.value.title,
       description: formData.value.description,
       is_active: formData.value.is_active,
+      release_feedback: formData.value.release_feedback,
+      access_code: formData.value.access_code.trim() || null,
       answer_images: imageUrl || undefined,
       answer_keys: processedAnswerKeys // Include processed OCR/AI data
     }

@@ -3,7 +3,9 @@ import {
   getAdminClient,
   getCaller,
   getTokenFromRequest,
+  isPendingUser,
   parseBody,
+  roleTitleOf,
 } from './_lib/http.js'
 
 const DEFAULT_PROMPT =
@@ -213,11 +215,12 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  // The student quiz page is public, so anonymous callers may use vision with a
-  // tighter per-IP limit. Authenticated callers get a slightly higher budget.
+  // The student quiz page is public. Only Teacher/Admin accounts may send a
+  // custom prompt; everyone else is forced through the fixed extraction prompt.
   const token = getTokenFromRequest(req)
   const isAnonymous = !token
-  if (!(await applyDurableRateLimit(req, res, isAnonymous ? 10 : 20, 60_000, 'vision'))) return
+  let admin = getAdminClient()
+  let isPrivileged = false
 
   if (!isAnonymous) {
     const caller = await getCaller(req)
@@ -225,7 +228,17 @@ export default async function handler(req: any, res: any) {
       res.status(caller.status).json({ error: caller.error, text: null })
       return
     }
+    if (isPendingUser(caller.user)) {
+      res.status(403).json({ error: 'Account is pending approval', text: null })
+      return
+    }
+    const roleTitle = await roleTitleOf(caller.admin, caller.user)
+    isPrivileged = roleTitle === 'teacher' || roleTitle === 'admin'
+    admin = caller.admin
   }
+
+  const rateLimit = isPrivileged ? 30 : 10
+  if (!(await applyDurableRateLimit(req, res, rateLimit, 60_000, 'vision'))) return
 
   const geminiKey = process.env.GEMINI_API_KEY
   const groqKey = process.env.GROQ_API_KEY
@@ -237,7 +250,8 @@ export default async function handler(req: any, res: any) {
   const body = parseBody(req)
   const image = body.image
   const mimeType = typeof body.mimeType === 'string' ? body.mimeType : 'image/jpeg'
-  const clientPrompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+  const requestedPrompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+  const clientPrompt = isPrivileged ? requestedPrompt : ''
   const requestedMode: VisionMode = body.mode === 'json' ? 'json' : 'text'
 
   if (typeof image !== 'string' || image.length === 0) {
@@ -248,19 +262,18 @@ export default async function handler(req: any, res: any) {
     res.status(415).json({ error: 'Unsupported image type', text: null })
     return
   }
-  if (!isAnonymous && clientPrompt.length > MAX_PROMPT_CHARS) {
+  if (isPrivileged && clientPrompt.length > MAX_PROMPT_CHARS) {
     res.status(400).json({ error: 'Prompt is too long', text: null })
     return
   }
 
-  if (isAnonymous) {
+  if (!isPrivileged) {
     const quizId = Number(body.quizId)
     if (!Number.isInteger(quizId) || quizId <= 0) {
       res.status(400).json({ error: 'A valid quizId is required', text: null })
       return
     }
 
-    const admin = getAdminClient()
     if (!admin) {
       res.status(503).json({ error: 'Vision not configured', text: null })
       return
@@ -295,10 +308,10 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  const effectivePrompt = isAnonymous
-    ? STUDENT_ANSWER_PROMPT
-    : clientPrompt || DEFAULT_PROMPT
-  const effectiveMode: VisionMode = isAnonymous ? 'json' : requestedMode
+  const effectivePrompt = isPrivileged
+    ? clientPrompt || DEFAULT_PROMPT
+    : STUDENT_ANSWER_PROMPT
+  const effectiveMode: VisionMode = isPrivileged ? requestedMode : 'json'
   const startedAt = Date.now()
   let lastDetail = 'Vision request failed'
 

@@ -46,6 +46,21 @@ export function isAdminUser(user: any): boolean {
   return !isPendingUser(user) && roleIdOf(user) === 1
 }
 
+export async function roleTitleById(admin: any, roleId: number | null): Promise<string | null> {
+  if (!roleId) return null
+  const { data, error } = await admin
+    .from('roles')
+    .select('title')
+    .eq('id', roleId)
+    .maybeSingle()
+  if (error || !data?.title) return null
+  return String(data.title).trim().toLowerCase()
+}
+
+export async function roleTitleOf(admin: any, user: any): Promise<string | null> {
+  return roleTitleById(admin, roleIdOf(user))
+}
+
 export async function getCaller(req: any) {
   const token = getTokenFromRequest(req)
   if (!token) return { status: 401, error: 'Missing authorization token' as const }
