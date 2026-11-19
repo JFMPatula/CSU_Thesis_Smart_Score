@@ -57,10 +57,16 @@ async function compressImage(file: Blob): Promise<Blob> {
   return blob && blob.size < file.size ? blob : file
 }
 
+export interface UploadImageOptions {
+  quizId?: number
+  accessCode?: string | null
+}
+
 export const uploadImageToStorage = async (
   file: File | Blob,
   bucket: string = 'student-answers',
-  folder: string = 'answers'
+  folder: string = 'answers',
+  options: UploadImageOptions = {}
 ): Promise<string> => {
   try {
     if (bucket === 'student-answers') {
@@ -83,6 +89,8 @@ export const uploadImageToStorage = async (
           folder,
           mimeType: finalMime,
           data: await blobToBase64(prepared),
+          quizId: options.quizId,
+          accessCode: options.accessCode ?? null,
         }),
       })
 

@@ -22,8 +22,12 @@ const emit = defineEmits<{
 }>();
 
 // Computed
-const passStatus = computed(() => (props.student?.score ?? 0) >= 75);
 const feedbackReleased = computed(() => props.student?.feedback_released === true);
+const hasScore = computed(() => typeof props.student?.score === 'number' && !Number.isNaN(props.student.score));
+const isPendingRelease = computed(() => !hasScore.value && feedbackReleased.value === false);
+const passStatus = computed(() => (hasScore.value ? (props.student!.score as number) >= 75 : false));
+const headerColor = computed(() => (isPendingRelease.value ? 'info' : getScoreColor(props.student?.score ?? null)));
+const scoreLabel = computed(() => (isPendingRelease.value ? '…' : getGradeLetter(props.student?.score ?? null)));
 
 /**
  * Get the correct answer stored with the graded response. The server strips
@@ -79,7 +83,7 @@ const handleClose = () => {
   >
     <v-card v-if="student">
       <!-- Header -->
-      <v-card-title class="d-flex align-center pa-4" :class="`bg-${getScoreColor(student.score)}`">
+      <v-card-title class="d-flex align-center pa-4" :class="`bg-${headerColor}`">
         <v-icon left color="white">mdi-account-details</v-icon>
         <span class="text-white">Student Record Details</span>
         <v-spacer />
@@ -127,31 +131,40 @@ const handleClose = () => {
           </v-card>
 
           <!-- Score Summary -->
-          <v-card variant="tonal" :color="getScoreColor(student.score)" class="mb-4">
+          <v-card variant="tonal" :color="headerColor" class="mb-4">
             <v-card-text class="text-center pa-6">
               <div class="d-flex justify-center align-center mb-4">
-                <v-avatar :color="getScoreColor(student.score)" size="80" class="text-white">
-                  <span class="text-h4">{{ getGradeLetter(student.score) }}</span>
+                <v-avatar :color="headerColor" size="80" class="text-white">
+                  <span class="text-h4">{{ scoreLabel }}</span>
                 </v-avatar>
               </div>
 
-              <div class="text-h3 mb-2" :class="`text-${getScoreColor(student.score)}`">
-                {{ student.score ?? 'N/A' }}%
-              </div>
+              <template v-if="!isPendingRelease">
+                <div class="text-h3 mb-2" :class="`text-${headerColor}`">
+                  {{ student.score ?? 'N/A' }}%
+                </div>
 
-              <div class="text-h6 mb-3">
-                {{ student.remarks || 'No remarks available' }}
-              </div>
+                <div class="text-h6 mb-3">
+                  {{ student.remarks || 'No remarks available' }}
+                </div>
 
-              <v-chip
-                :color="passStatus ? 'success' : 'error'"
-                variant="flat"
-                size="large"
-                class="text-white"
-              >
-                <v-icon left>{{ passStatus ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
-                {{ passStatus ? 'PASSED' : 'FAILED' }}
-              </v-chip>
+                <v-chip
+                  v-if="hasScore"
+                  :color="passStatus ? 'success' : 'error'"
+                  variant="flat"
+                  size="large"
+                  class="text-white"
+                >
+                  <v-icon left>{{ passStatus ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
+                  {{ passStatus ? 'PASSED' : 'FAILED' }}
+                </v-chip>
+              </template>
+              <template v-else>
+                <div class="text-h5 mb-2">Results pending release</div>
+                <div class="text-body-1 text-medium-emphasis">
+                  Your teacher has not released the score and feedback for this submission yet.
+                </div>
+              </template>
             </v-card-text>
           </v-card>
 

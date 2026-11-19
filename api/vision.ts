@@ -281,7 +281,7 @@ export default async function handler(req: any, res: any) {
 
     const { data: quiz, error: quizError } = await admin
       .from('answer_keys')
-      .select('id, is_active')
+      .select('id, is_active, access_code')
       .eq('id', quizId)
       .maybeSingle()
 
@@ -293,6 +293,15 @@ export default async function handler(req: any, res: any) {
     if (!quiz || !quiz.is_active) {
       res.status(403).json({ error: 'Quiz is not active', text: null })
       return
+    }
+
+    const requiredAccessCode = typeof quiz.access_code === 'string' ? quiz.access_code.trim() : ''
+    if (requiredAccessCode) {
+      const providedAccessCode = typeof body.accessCode === 'string' ? body.accessCode.trim() : ''
+      if (!providedAccessCode || providedAccessCode.toLowerCase() !== requiredAccessCode.toLowerCase()) {
+        res.status(403).json({ error: 'A valid access code is required for this quiz.', text: null })
+        return
+      }
     }
   }
 

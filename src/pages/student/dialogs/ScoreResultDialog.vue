@@ -16,12 +16,12 @@ interface Props {
   studentId?: string;
   quizId?: string;
   scoreData?: {
-    score: number;
-    remarks: string;
-    totalCorrect: number;
-    totalIncorrect: number;
-    totalQuestions: number;
-    comparisons: Array<{
+    score?: number | null;
+    remarks?: string | null;
+    totalCorrect?: number | null;
+    totalIncorrect?: number | null;
+    totalQuestions?: number | null;
+    comparisons?: Array<{
       questionNumber: number;
       studentAnswer: string;
       correctAnswer: string;
@@ -32,6 +32,8 @@ interface Props {
     }>;
     checkingTimeMs?: number;
     feedbackReleased?: boolean;
+    pendingRelease?: boolean;
+    message?: string;
     claimCode?: string;
   };
 }
@@ -51,10 +53,20 @@ const emit = defineEmits<{
 const copiedClaimCode = ref(false);
 
 // Computed
-const scorePercentage = computed(() => props.scoreData?.score || 0);
-const scoreColor = computed(() => getScoreColor(scorePercentage.value));
-const scoreGrade = computed(() => getGradeLetter(scorePercentage.value));
-const passStatus = computed(() => getPassStatus(scorePercentage.value));
+const isPendingRelease = computed(
+  () =>
+    props.scoreData?.pendingRelease === true ||
+    (props.scoreData?.feedbackReleased === false && props.scoreData?.score == null),
+);
+const hasScore = computed(
+  () => typeof props.scoreData?.score === "number" && !Number.isNaN(props.scoreData.score),
+);
+const scorePercentage = computed<number>(() =>
+  hasScore.value ? Number(props.scoreData?.score ?? 0) : 0,
+);
+const scoreColor = computed(() => (isPendingRelease.value ? "info" : getScoreColor(scorePercentage.value)));
+const scoreGrade = computed(() => (isPendingRelease.value ? "…" : getGradeLetter(scorePercentage.value)));
+const passStatus = computed(() => (hasScore.value ? getPassStatus(scorePercentage.value) : false));
 const feedbackReleased = computed(() => props.scoreData?.feedbackReleased === true);
 const claimCode = computed(() => props.scoreData?.claimCode || "");
 
@@ -179,25 +191,33 @@ const handleClose = () => {
               </v-avatar>
             </div>
 
-            <div class="text-h3 mb-2" :class="`text-${scoreColor}`">
-              {{ scorePercentage }}%
-            </div>
+            <template v-if="!isPendingRelease">
+              <div class="text-h3 mb-2" :class="`text-${scoreColor}`">
+                {{ scorePercentage }}%
+              </div>
 
-            <div class="text-h6 mb-3">
-              {{ scoreData?.remarks || "No remarks" }}
-            </div>
+              <div class="text-h6 mb-3">
+                {{ scoreData?.remarks || "No remarks" }}
+              </div>
 
-            <v-chip
-              :color="passStatus ? 'success' : 'error'"
-              variant="flat"
-              size="large"
-              class="text-white"
-            >
-              <v-icon left>{{
-                passStatus ? "mdi-check-circle" : "mdi-close-circle"
-              }}</v-icon>
-              {{ passStatus ? "PASSED" : "FAILED" }}
-            </v-chip>
+              <v-chip
+                :color="passStatus ? 'success' : 'error'"
+                variant="flat"
+                size="large"
+                class="text-white"
+              >
+                <v-icon left>{{
+                  passStatus ? "mdi-check-circle" : "mdi-close-circle"
+                }}</v-icon>
+                {{ passStatus ? "PASSED" : "FAILED" }}
+              </v-chip>
+            </template>
+            <template v-else>
+              <div class="text-h5 mb-2">Submission received</div>
+              <div class="text-body-1 text-medium-emphasis">
+                {{ scoreData?.message || "Your score and feedback will be available after your teacher releases them." }}
+              </div>
+            </template>
           </v-card-text>
         </v-card>
 
@@ -215,7 +235,7 @@ const handleClose = () => {
         </v-card>
 
         <!-- Statistics -->
-        <v-row class="mb-4">
+        <v-row v-if="!isPendingRelease" class="mb-4">
           <v-col cols="4">
             <v-card variant="outlined" class="text-center pa-3">
               <div class="text-h4 text-primary">
@@ -245,13 +265,22 @@ const handleClose = () => {
         </v-row>
 
         <v-alert
-          v-if="!feedbackReleased"
+          v-if="!isPendingRelease && !feedbackReleased"
           type="info"
           variant="tonal"
           class="mb-4"
         >
           Your teacher has not released answer feedback yet. Your score is shown, but correct
           answers and explanations will appear after your teacher releases them.
+        </v-alert>
+
+        <v-alert
+          v-if="isPendingRelease"
+          type="info"
+          variant="tonal"
+          class="mb-4"
+        >
+          Your score, correct answers, and explanations are hidden until your teacher releases them.
         </v-alert>
 
         <!-- Detailed Results -->

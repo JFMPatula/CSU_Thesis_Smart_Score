@@ -110,8 +110,9 @@ export class GroqAIService {
     imageBase64: string,
     extractionPrompt: string,
     quizId?: number,
+    accessCode?: string,
   ): Promise<any> {
-    console.log('ðŸ“„ Starting student answer sheet processing:', {
+    console.log('🔍 Starting student answer sheet processing:', {
       imageBase64Length: imageBase64.length,
       imageSize: `~${(imageBase64.length * 0.75 / 1024).toFixed(2)} KB`,
       stage: 'vision (structured)'
@@ -120,7 +121,7 @@ export class GroqAIService {
     // Read the sheet directly with the vision model. This works for anonymous
     // students too (public quiz page) and handles handwriting much better than
     // the OCR + text-model round trip.
-    const structured = await extractImageJson(imageBase64, extractionPrompt, quizId);
+    const structured = await extractImageJson(imageBase64, extractionPrompt, quizId, accessCode);
     const structuredAnswers = structured?.data?.answers;
     if (structured && Array.isArray(structuredAnswers) && structuredAnswers.length > 0) {
       console.log('âœ… Structured vision extraction complete:', {

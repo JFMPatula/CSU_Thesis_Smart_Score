@@ -28,9 +28,15 @@ const formData = ref({
 })
 
 // Form validation
+const generateAccessCode = () => Math.random().toString(36).slice(2, 8).toUpperCase()
+
 const titleRules = [
   (v: string) => !!v || 'Title is required',
   (v: string) => (v && v.length <= 100) || 'Title must be less than 100 characters'
+]
+
+const accessCodeRules = [
+  (v: string) => !!v?.trim() || 'Access code is required'
 ]
 
 // File handling
@@ -240,6 +246,9 @@ const loadAnswerKeyData = () => {
 
 const handleSubmit = async () => {
   if (!selectedAnswerKey.value) return
+  if (!formData.value.access_code.trim()) {
+    formData.value.access_code = generateAccessCode()
+  }
 
   try {
     let imageUrl = formData.value.answer_images
@@ -362,16 +371,16 @@ watch(isOpen, (newVal) => {
               />
             </v-col>
 
-            <!-- Optional access code -->
+            <!-- Access code -->
             <v-col cols="12">
               <v-text-field
                 v-model="formData.access_code"
-                label="Access code (optional)"
+                label="Access code *"
+                :rules="accessCodeRules"
                 variant="outlined"
                 prepend-inner-icon="mdi-key-outline"
-                hint="Students must enter this code before submitting the quiz."
+                hint="Required for graded quizzes. Share this generated code with students; it gates upload, analysis, and submission."
                 persistent-hint
-                clearable
                 autocomplete="off"
               />
             </v-col>

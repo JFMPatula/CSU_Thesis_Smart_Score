@@ -40,13 +40,15 @@ const totalSteps = 3
 // Image source selection
 const imageSource = ref<'upload' | 'camera' | null>(null)
 
+const generateAccessCode = () => Math.random().toString(36).slice(2, 8).toUpperCase()
+
 // Form data
 const formData = ref({
   title: '',
   description: '',
   is_active: true,
   release_feedback: false,
-  access_code: '',
+  access_code: generateAccessCode(),
   answer_images: null as string | null,
   answer_keys: null as any // JSONB field for processed answer key data
 })
@@ -528,7 +530,7 @@ const resetForm = () => {
     description: '',
     is_active: true,
     release_feedback: false,
-    access_code: '',
+    access_code: generateAccessCode(),
     answer_images: null,
     answer_keys: null
   }
@@ -543,6 +545,10 @@ const resetForm = () => {
 }
 
 const handleSubmit = async () => {
+  if (!formData.value.access_code.trim()) {
+    formData.value.access_code = generateAccessCode()
+  }
+
   try {
     let imageUrl = null
 

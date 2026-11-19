@@ -175,6 +175,15 @@ export default async function handler(req: any, res: any) {
     res.status(405).json({ error: 'Method not allowed' })
     return
   }
+
+  const body = parseBody(req)
+  const quizId = Number(body.quizId ?? body.answerKeyId)
+  if (!Number.isInteger(quizId) || quizId <= 0) {
+    res.status(400).json({ error: 'A valid quiz ID is required' })
+    return
+  }
+
+  if (!(await applyDurableRateLimit(req, res, 3, 60 * 60 * 1000, `grade:${quizId}`))) return
   if (!(await applyDurableRateLimit(req, res, 30, 60_000, 'grade'))) return
 
   const admin = getAdminClient()
@@ -193,9 +202,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  const body = parseBody(req)
   const student = body.student && typeof body.student === 'object' ? body.student : {}
-  const quizId = Number(body.quizId ?? body.answerKeyId)
   const studentId = normalizeStudentId(
     body.studentId ?? body.student_id ?? student.student_id ?? student.studentId
   )
@@ -204,11 +211,6 @@ export default async function handler(req: any, res: any) {
   )
   const answers = body.answers
   const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : null
-
-  if (!Number.isInteger(quizId) || quizId <= 0) {
-    res.status(400).json({ error: 'A valid quiz ID is required' })
-    return
-  }
   if (!studentId || studentId.length > 64) {
     res.status(400).json({ error: 'Student ID must be between 1 and 64 characters' })
     return
@@ -459,6 +461,18 @@ export default async function handler(req: any, res: any) {
 
   const feedbackReleased = answerKey.release_feedback === true
 
+  if (!feedbackReleased) {
+    res.status(200).json({
+      success: true,
+      studentRecordId: inserted?.id,
+      feedbackReleased: false,
+      pendingRelease: true,
+      message: 'Submission received. Your score and feedback will be available after your teacher releases them.',
+      ...(claimCode ? { claimCode } : {}),
+    })
+    return
+  }
+
   res.status(200).json({
     success: true,
     studentRecordId: inserted?.id,
@@ -471,8 +485,8 @@ export default async function handler(req: any, res: any) {
     correctAnswers: totalCorrect,
     incorrectAnswers: totalQuestions - totalCorrect,
     needsReview,
-    feedbackReleased,
-    comparisons: feedbackReleased ? comparisons : [],
+    feedbackReleased: true,
+    comparisons,
     ...(claimCode ? { claimCode } : {}),
   })
 }

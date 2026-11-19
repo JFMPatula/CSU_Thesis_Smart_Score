@@ -82,7 +82,7 @@ export default defineConfig(({ command }) => ({
       '.vue',
     ],
   },
-  esbuild: command === 'build' ? { drop: ['console', 'debugger'] } : undefined,
+  esbuild: command === 'build' ? { pure: ['console.log'], drop: ['debugger'] } : undefined,
   server: {
     port: 1212,
   },

@@ -18,6 +18,32 @@ export const useUserPermissions = () => {
 
   // Get current user's role ID
   const userRoleId = computed(() => authStore.userData?.role_id || authStore.userData?.app_metadata?.role)
+  const userRoleTitle = computed(() => String(authStore.userData?.role_title || '').trim().toLowerCase())
+
+  const defaultPermissionsForRoleTitle = (title: string): string[] => {
+    if (title === 'teacher') return ['teacher.access', 'teacher.answerkey.manage', 'teacher.students.view']
+    if (title === 'admin') {
+      return [
+        'admin.dashboard.view',
+        'admin.access',
+        'admin.users.manage',
+        'admin.roles.manage',
+        'admin.announcements.manage',
+        'teacher.access',
+        'teacher.answerkey.manage',
+        'teacher.students.view',
+      ]
+    }
+    return []
+  }
+
+  const effectiveAccessiblePages = computed(() => {
+    const merged = new Set(userAccessiblePages.value)
+    for (const permission of defaultPermissionsForRoleTitle(userRoleTitle.value)) {
+      merged.add(permission)
+    }
+    return [...merged]
+  })
 
   // Fetch accessible pages for the current user's role
   const fetchUserAccessiblePages = async () => {
@@ -58,7 +84,7 @@ export const useUserPermissions = () => {
       return true
     }
 
-    return requiredPermissions.some(permission => userAccessiblePages.value.includes(permission))
+    return requiredPermissions.some(permission => effectiveAccessiblePages.value.includes(permission))
   }
 
   // Check if user has access to any route in a group
@@ -158,6 +184,7 @@ export const authGuard = async (to: RouteLocationNormalized, from: RouteLocation
       }
 
       const userRoleId = currentUserResult.user.app_metadata?.role;
+      const roleTitle = String(currentUserResult.user.role_title || "").trim().toLowerCase();
 
       if (!userRoleId) {
         return next("/forbidden");
@@ -165,15 +192,25 @@ export const authGuard = async (to: RouteLocationNormalized, from: RouteLocation
 
       // Fetch pages accessible by this role
       const rolePages = await pagesStore.fetchRolePagesByRoleId(userRoleId);
+      const defaultTeacherPerms = ['teacher.access', 'teacher.answerkey.manage', 'teacher.students.view'];
+      const defaultAdminPerms = [
+        'admin.dashboard.view',
+        'admin.access',
+        'admin.users.manage',
+        'admin.roles.manage',
+        'admin.announcements.manage',
+        ...defaultTeacherPerms,
+      ];
 
-      if (!rolePages || rolePages.length === 0) {
-        return next("/forbidden");
-      }
+      const allowedPages = new Set(rolePages.map(rolePage => rolePage.pages).filter(Boolean) as string[]);
+      const defaults = roleTitle === 'teacher' ? defaultTeacherPerms : roleTitle === 'admin' ? defaultAdminPerms : [];
+      defaults.forEach((permission) => allowedPages.add(permission));
 
       // Determine required permissions for the requested path
       const requiredPermissions = getPermissionForRoute(to.path)
-      const allowedPages = rolePages.map(rolePage => rolePage.pages).filter(Boolean) as string[]
-      const isPageAllowed = requiredPermissions.length === 0 || requiredPermissions.some(permission => allowedPages.includes(permission))
+      const isPageAllowed =
+        requiredPermissions.length === 0 ||
+        requiredPermissions.some(permission => allowedPages.has(permission))
 
       if (!isPageAllowed) {
         return next("/forbidden");

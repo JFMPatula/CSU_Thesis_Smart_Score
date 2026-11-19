@@ -16,6 +16,7 @@ export interface Student {
     answers: any | null; // JSONB data
     student_id: string; // Required, cannot be null
     user_id?: string | null;
+    claim_code_hash?: string | null;
     needs_review?: boolean;
     feedback_released?: boolean;
     quiz_title?: string | null;
@@ -330,6 +331,81 @@ export const useStudentsStore = defineStore('studentsData', () => {
         }
     };
 
+    const relinkStudentRecord = async (id: number, userId: string) => {
+        loading.value = true;
+        error.value = null;
+
+        try {
+            const { data, error: relinkError } = await supabase.rpc('teacher_relink_student_record', {
+                p_student_id: id,
+                p_user_id: userId.trim(),
+            });
+
+            if (relinkError) throw relinkError;
+            if (!data) throw new Error('The submission could not be re-linked');
+
+            const { data: updated, error: fetchError } = await supabase
+                .from('students')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            if (fetchError) throw fetchError;
+
+            const index = students.value.findIndex(student => student.id === id);
+            if (index !== -1) {
+                students.value[index] = updated;
+            }
+            if (currentStudent.value?.id === id) {
+                currentStudent.value = updated;
+            }
+
+            return { data: updated as Student, error: null };
+        } catch (err) {
+            error.value = err instanceof Error ? err.message : 'Failed to re-link submission';
+            return { data: null, error: error.value };
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    const clearStudentClaim = async (id: number) => {
+        loading.value = true;
+        error.value = null;
+
+        try {
+            const { data, error: claimError } = await supabase.rpc('teacher_clear_student_claim', {
+                p_student_id: id,
+            });
+
+            if (claimError) throw claimError;
+            if (!data) throw new Error('The claim lock could not be cleared');
+
+            const { data: updated, error: fetchError } = await supabase
+                .from('students')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            if (fetchError) throw fetchError;
+
+            const index = students.value.findIndex(student => student.id === id);
+            if (index !== -1) {
+                students.value[index] = updated;
+            }
+            if (currentStudent.value?.id === id) {
+                currentStudent.value = updated;
+            }
+
+            return { data: updated as Student, error: null };
+        } catch (err) {
+            error.value = err instanceof Error ? err.message : 'Failed to clear claim lock';
+            return { data: null, error: error.value };
+        } finally {
+            loading.value = false;
+        }
+    };
+
     /**
      * Bulk create students (useful for batch submissions)
      */
@@ -432,6 +508,8 @@ export const useStudentsStore = defineStore('studentsData', () => {
         createStudent,
         updateStudent,
         deleteStudent,
+        relinkStudentRecord,
+        clearStudentClaim,
         createStudentsBulk,
         updateStudentScore,
         getAnswerKeyStatistics,

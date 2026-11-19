@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useToast } from 'vue-toastification'
 import InnerLayoutWrapper from '@/layouts/InnerLayoutWrapper.vue'
@@ -31,6 +31,8 @@ const isStudent = computed(
   () => String(authStore.userData?.role_title || '').trim().toLowerCase() === 'student',
 )
 const hasResults = computed(() => results.value.length > 0)
+const isPendingRelease = (result: MyResult) =>
+  result.feedback_released === false && result.score == null
 
 const loadResults = async () => {
   loading.value = true
@@ -215,9 +217,12 @@ onMounted(async () => {
                 @click="openDetails(result)"
               >
                 <template #prepend>
-                  <v-avatar :color="getScoreColor(result.score)" size="40">
+                  <v-avatar
+                    :color="isPendingRelease(result) ? 'info' : getScoreColor(result.score)"
+                    size="40"
+                  >
                     <span class="text-white font-weight-bold">
-                      {{ getGradeLetter(result.score) }}
+                      {{ isPendingRelease(result) ? '···' : getGradeLetter(result.score) }}
                     </span>
                   </v-avatar>
                 </template>
@@ -228,11 +233,20 @@ onMounted(async () => {
                 <v-list-item-subtitle>
                   {{ formatDate(result.created_at) }} · ID: {{ result.student_id }}
                   <span v-if="result.needs_review"> · Needs review</span>
+                  <span v-if="isPendingRelease(result)"> · Pending release</span>
                 </v-list-item-subtitle>
 
                 <template #append>
-                  <v-chip :color="getScoreColor(result.score)" size="small" variant="flat">
+                  <v-chip
+                    v-if="!isPendingRelease(result)"
+                    :color="getScoreColor(result.score)"
+                    size="small"
+                    variant="flat"
+                  >
                     {{ result.score ?? 'N/A' }}%
+                  </v-chip>
+                  <v-chip v-else color="info" size="small" variant="tonal">
+                    Pending
                   </v-chip>
                   <v-btn icon variant="text" color="primary" class="ml-2">
                     <v-icon>mdi-eye</v-icon>

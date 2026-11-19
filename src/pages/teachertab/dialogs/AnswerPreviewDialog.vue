@@ -22,6 +22,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   updated: [student: Student]
+  deleted: [id: number]
 }>()
 
 // Stores
@@ -32,6 +33,15 @@ const reviewingQuestion = ref<number | null>(null)
 const snackbar = ref(false)
 const snackbarText = ref('')
 const snackbarColor = ref<'success' | 'error'>('success')
+const confirmDelete = ref(false)
+const showClaimManager = ref(false)
+const targetUserId = ref('')
+const deleting = ref(false)
+const managingClaim = ref(false)
+
+const claimLocked = computed(() =>
+  !!props.student && !props.student.user_id && !!props.student.claim_code_hash
+)
 
 const answerKeyData = computed(() => {
   if (!props.student?.answer_key_id) return null
@@ -273,7 +283,81 @@ const reviewAnswer = async (answer: any, verdict: 'correct' | 'incorrect') => {
   }
 }
 
-// Methods
+const deleteRecord = async () => {
+  const student = props.student
+  if (!student?.id) return
+
+  deleting.value = true
+  try {
+    const { error } = await studentsStore.deleteStudent(student.id)
+    if (error) {
+      snackbarText.value = error
+      snackbarColor.value = 'error'
+      snackbar.value = true
+      return
+    }
+
+    confirmDelete.value = false
+    emit('deleted', student.id)
+    closeDialog()
+  } finally {
+    deleting.value = false
+  }
+}
+
+const openClaimManager = () => {
+  targetUserId.value = props.student?.user_id || ''
+  showClaimManager.value = true
+}
+
+const relinkRecord = async () => {
+  const student = props.student
+  if (!student?.id || !targetUserId.value.trim()) return
+
+  managingClaim.value = true
+  try {
+    const { data, error } = await studentsStore.relinkStudentRecord(student.id, targetUserId.value)
+    if (error || !data) {
+      snackbarText.value = error || 'Unable to re-link this submission'
+      snackbarColor.value = 'error'
+      snackbar.value = true
+      return
+    }
+
+    emit('updated', data as Student)
+    showClaimManager.value = false
+    snackbarText.value = 'Submission re-linked to the student account'
+    snackbarColor.value = 'success'
+    snackbar.value = true
+  } finally {
+    managingClaim.value = false
+  }
+}
+
+const clearClaim = async () => {
+  const student = props.student
+  if (!student?.id) return
+
+  managingClaim.value = true
+  try {
+    const { data, error } = await studentsStore.clearStudentClaim(student.id)
+    if (error || !data) {
+      snackbarText.value = error || 'Unable to clear this claim lock'
+      snackbarColor.value = 'error'
+      snackbar.value = true
+      return
+    }
+
+    emit('updated', data as Student)
+    showClaimManager.value = false
+    snackbarText.value = 'Claim lock cleared. The student can now link this result.'
+    snackbarColor.value = 'success'
+    snackbar.value = true
+  } finally {
+    managingClaim.value = false
+  }
+}
+
 const closeDialog = () => {
   emit('update:modelValue', false)
 }
@@ -311,6 +395,16 @@ const closeDialog = () => {
             >
               Needs review
             </v-chip>
+            <v-chip
+              v-if="claimLocked"
+              color="error"
+              size="x-small"
+              variant="tonal"
+              class="ms-2"
+              prepend-icon="mdi-lock"
+            >
+              Claim locked
+            </v-chip>
           </div>
           <div class="text-subtitle-2 text-medium-emphasis">Student ID: {{ student.student_id }}</div>
         </div>
@@ -328,6 +422,7 @@ const closeDialog = () => {
               <div class="text-subtitle-2 text-medium-emphasis mb-2">Quiz Information</div>
               <div><strong>Quiz:</strong> {{ quizTitle }}</div>
               <div><strong>Submitted:</strong> {{ formatFullDate(student.created_at) }}</div>
+              <div><strong>Linked account:</strong> {{ student.user_id || 'Unclaimed' }}</div>
             </v-card>
           </v-col>
           <v-col cols="12" md="6">
@@ -582,12 +677,75 @@ const closeDialog = () => {
       </v-card-text>
 
       <v-card-actions class="pa-4">
+        <v-btn color="info" variant="tonal" prepend-icon="mdi-link-variant" @click="openClaimManager">
+          Re-link / reset claim
+        </v-btn>
         <v-spacer></v-spacer>
+        <v-btn color="error" variant="text" prepend-icon="mdi-delete" @click="confirmDelete = true">
+          Delete submission
+        </v-btn>
         <v-btn color="grey" variant="text" @click="closeDialog">
           Close
         </v-btn>
       </v-card-actions>
     </v-card>
+
+    <v-dialog v-model="confirmDelete" max-width="450">
+      <v-card>
+        <v-card-title>Delete submission</v-card-title>
+        <v-card-text>
+          Delete this submission for {{ student?.fullname }}? This cannot be undone.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" :disabled="deleting" @click="confirmDelete = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="deleting" @click="deleteRecord">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showClaimManager" max-width="600">
+      <v-card>
+        <v-card-title>Manage claim</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            Re-link this submission to a verified student account by entering that account's user ID.
+            If the student cannot be identified, clear the claim lock only after confirming ownership.
+          </p>
+          <v-text-field
+            v-model="targetUserId"
+            label="Student account user ID"
+            variant="outlined"
+            autocomplete="off"
+            :disabled="managingClaim"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" :disabled="managingClaim" @click="showClaimManager = false">
+            Cancel
+          </v-btn>
+          <v-btn
+            color="warning"
+            variant="tonal"
+            :loading="managingClaim"
+            :disabled="!student?.id || !!student.user_id"
+            @click="clearClaim"
+          >
+            Clear lock
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="managingClaim"
+            :disabled="!targetUserId.trim()"
+            @click="relinkRecord"
+          >
+            Re-link
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="2500">
       {{ snackbarText }}

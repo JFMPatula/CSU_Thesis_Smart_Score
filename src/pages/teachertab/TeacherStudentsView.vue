@@ -117,6 +117,14 @@ const handleStudentUpdated = (student: Student) => {
   selectedStudent.value = student
 }
 
+const handleStudentDeleted = async (id: number) => {
+  if (selectedStudent.value?.id === id) {
+    selectedStudent.value = null
+    detailsDialog.value = false
+  }
+  await fetchData()
+}
+
 // Lifecycle
 onMounted(() => {
   fetchData()
@@ -452,6 +460,7 @@ onMounted(() => {
       :student="selectedStudent"
       :quiz-title="selectedStudent ? getAnswerKeyTitle(selectedStudent.answer_key_id) : ''"
       @updated="handleStudentUpdated"
+      @deleted="handleStudentDeleted"
     />
         </div>
       </v-container>

@@ -55,6 +55,7 @@ export default async function handler(req: any, res: any) {
   const folder = typeof body.folder === 'string' && body.folder ? body.folder : 'answers'
   const mimeType = typeof body.mimeType === 'string' ? body.mimeType : ''
   const data = typeof body.data === 'string' ? body.data : ''
+  const quizId = Number(body.quizId)
 
   if (!ALLOWED_BUCKETS.has(bucket)) {
     res.status(400).json({ error: 'Invalid bucket' })
@@ -71,6 +72,35 @@ export default async function handler(req: any, res: any) {
   if (!data) {
     res.status(400).json({ error: 'Missing file data' })
     return
+  }
+  if (!Number.isInteger(quizId) || quizId <= 0) {
+    res.status(400).json({ error: 'A valid quizId is required' })
+    return
+  }
+
+  const { data: quiz, error: quizError } = await admin
+    .from('answer_keys')
+    .select('id, is_active, access_code')
+    .eq('id', quizId)
+    .maybeSingle()
+
+  if (quizError) {
+    console.error('Failed to verify quiz for upload:', quizError)
+    res.status(503).json({ error: 'Upload temporarily unavailable' })
+    return
+  }
+  if (!quiz || !quiz.is_active) {
+    res.status(403).json({ error: 'Quiz is not active' })
+    return
+  }
+
+  const requiredAccessCode = typeof quiz.access_code === 'string' ? quiz.access_code.trim() : ''
+  if (requiredAccessCode) {
+    const providedAccessCode = typeof body.accessCode === 'string' ? body.accessCode.trim() : ''
+    if (!providedAccessCode || providedAccessCode.toLowerCase() !== requiredAccessCode.toLowerCase()) {
+      res.status(403).json({ error: 'A valid access code is required for this quiz' })
+      return
+    }
   }
 
   let buffer: Buffer

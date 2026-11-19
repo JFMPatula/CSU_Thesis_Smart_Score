@@ -228,9 +228,9 @@ const handleSearchEnter = () => {
                 @click="viewStudent(student)"
               >
                 <template #prepend>
-                  <v-avatar :color="getScoreColor(student.score)" size="40">
+                  <v-avatar :color="student.feedback_released === false ? 'info' : getScoreColor(student.score)" size="40">
                     <span class="text-white font-weight-bold">
-                      {{ getGradeLetter(student.score) }}
+                      {{ student.feedback_released === false && student.score == null ? '…' : getGradeLetter(student.score) }}
                     </span>
                   </v-avatar>
                 </template>
@@ -243,11 +243,15 @@ const handleSearchEnter = () => {
                     </div>
                     <div class="text-right">
                       <v-chip
+                        v-if="student.feedback_released !== false || student.score != null"
                         :color="getScoreColor(student.score)"
                         size="small"
                         variant="flat"
                       >
                         {{ student.score ?? 'N/A' }}%
+                      </v-chip>
+                      <v-chip v-else color="info" size="small" variant="tonal">
+                        Pending release
                       </v-chip>
                     </div>
                   </div>
@@ -256,7 +260,9 @@ const handleSearchEnter = () => {
                 <v-list-item-subtitle>
                   <div class="d-flex align-center justify-space-between mt-1">
                     <span>{{ formatDate(student.created_at) }}</span>
-                    <span class="text-caption">{{ student.remarks || 'No remarks' }}</span>
+                    <span class="text-caption">
+                      {{ student.feedback_released === false && student.score == null ? 'Score hidden until released' : (student.remarks || 'No remarks') }}
+                    </span>
                   </div>
                 </v-list-item-subtitle>
 

@@ -45,22 +45,22 @@
             label="Release answer feedback to students"
             color="primary"
             inset
-            hint="When off, students only see their score and total correct count."
+            hint="When off, students only see that their submission was received; scores and feedback stay hidden."
             persistent-hint
           />
         </v-col>
 
-        <!-- Optional access code -->
+        <!-- Access code -->
         <v-col cols="12">
           <v-text-field
             :model-value="formData.access_code"
             @update:model-value="updateField('access_code', $event || '')"
-            label="Access code (optional)"
+            label="Access code *"
+            :rules="accessCodeRules"
             variant="outlined"
             prepend-inner-icon="mdi-key-outline"
-            hint="Students must enter this code before submitting the quiz."
+            hint="Required for graded quizzes. Share this generated code with students; it gates upload, analysis, and submission."
             persistent-hint
-            clearable
             autocomplete="off"
           />
         </v-col>
@@ -256,6 +256,10 @@ const emit = defineEmits<Emits>()
 const titleRules = [
   (v: string) => !!v || 'Title is required',
   (v: string) => (v && v.length <= 100) || 'Title must be less than 100 characters'
+]
+
+const accessCodeRules = [
+  (v: string) => !!v?.trim() || 'Access code is required'
 ]
 
 const updateField = (field: keyof FormData, value: any) => {

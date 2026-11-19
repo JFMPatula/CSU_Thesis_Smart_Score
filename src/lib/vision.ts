@@ -1,4 +1,4 @@
-// Image transcription/extraction: Gemini vision model (with a Groq multimodal
+﻿// Image transcription/extraction: Gemini vision model (with a Groq multimodal
 // fallback) via the /api/vision serverless function, falling back to local
 // Tesseract when the endpoint is unavailable (e.g. local dev, no network) or
 // when no vision provider is configured.
@@ -66,7 +66,7 @@ async function withRetryFetch(
       // Retry on 5xx (server errors) but not 4xx (client errors)
       if (response.status >= 500 && attempt < maxAttempts) {
         const delay = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
-        console.warn(`⚠️ Vision endpoint HTTP ${response.status}, retrying in ${delay}ms`);
+        console.warn(`Vision endpoint HTTP ${response.status}, retrying in ${delay}ms`);
         await sleep(delay);
         continue;
       }
@@ -79,7 +79,7 @@ async function withRetryFetch(
         /timeout|timed out|network|econn|socket hang up|failed to fetch/.test(message);
       if (!isRetryable || attempt === maxAttempts) throw err;
       const delay = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
-      console.warn(`⚠️ Vision fetch attempt ${attempt}/${maxAttempts} failed, retrying in ${delay}ms:`, message);
+      console.warn(`Vision fetch attempt ${attempt}/${maxAttempts} failed, retrying in ${delay}ms:`, message);
       await sleep(delay);
     }
   }
@@ -95,6 +95,7 @@ async function callVisionEndpoint(
   prompt: string,
   mode: 'text' | 'json',
   quizId?: number,
+  accessCode?: string,
 ): Promise<{ text: string; provider: string; model: string } | null> {
   const prepared = await prepareImageSourceForVision(source);
   if (!prepared) return null;
@@ -113,10 +114,11 @@ async function callVisionEndpoint(
         prompt,
         mode,
         ...(quizId ? { quizId } : {}),
+        ...(accessCode ? { accessCode } : {}),
       }),
     });
     if (!res.ok) {
-      console.warn(`⚠️ Vision endpoint failed (HTTP ${res.status})`);
+      console.warn(`Vision endpoint failed (HTTP ${res.status})`);
       return null;
     }
     const json = await res.json();
@@ -128,7 +130,7 @@ async function callVisionEndpoint(
       model: typeof json?.model === 'string' ? json.model : 'unknown',
     };
   } catch (e) {
-    console.warn('⚠️ Vision request failed:', e);
+    console.warn('Vision request failed:', e);
     return null;
   }
 }
@@ -136,8 +138,13 @@ async function callVisionEndpoint(
 /**
  * Ask the vision model to transcribe the image via /api/vision.
  */
-async function visionTranscribe(source: File | Blob | string, prompt?: string): Promise<string | null> {
-  const result = await callVisionEndpoint(source, prompt || DEFAULT_VISION_PROMPT, 'text');
+async function visionTranscribe(
+  source: File | Blob | string,
+  prompt?: string,
+  quizId?: number,
+  accessCode?: string,
+): Promise<string | null> {
+  const result = await callVisionEndpoint(source, prompt || DEFAULT_VISION_PROMPT, 'text', quizId, accessCode);
   return result?.text ?? null;
 }
 
@@ -170,13 +177,14 @@ export async function extractImageJson(
   source: File | Blob | string,
   prompt: string,
   quizId?: number,
+  accessCode?: string,
 ): Promise<ImageJsonResult | null> {
-  const result = await callVisionEndpoint(source, prompt, 'json', quizId);
+  const result = await callVisionEndpoint(source, prompt, 'json', quizId, accessCode);
   if (!result) return null;
 
   const data = parseJsonText(result.text);
   if (!data || typeof data !== 'object') {
-    console.warn('⚠️ Vision returned non-JSON output, falling back.', {
+    console.warn('Vision returned non-JSON output, falling back.', {
       model: result.model,
       preview: result.text.slice(0, 200),
     });
@@ -203,9 +211,11 @@ function estimateTranscriptionConfidence(text: string, engine: string): number {
  */
 export async function transcribeImage(
   source: File | Blob | string,
-  prompt?: string
+  prompt?: string,
+  quizId?: number,
+  accessCode?: string,
 ): Promise<TranscribeResult> {
-  const result = await callVisionEndpoint(source, prompt || DEFAULT_VISION_PROMPT, 'text');
+  const result = await callVisionEndpoint(source, prompt || DEFAULT_VISION_PROMPT, 'text', quizId, accessCode);
   if (result?.text) {
     return {
       text: result.text,
@@ -228,7 +238,7 @@ async function tesseractFallback(source: File | Blob | string): Promise<Transcri
     const ocrSource = typeof source === 'string' ? toImageUrl(source) : source;
     const prepared = await prepareImageSourceForOcr(ocrSource);
     if (prepared === null) {
-      console.warn('⚠️ OCR skipped: image could not be prepared for recognition');
+      console.warn('OCR skipped: image could not be prepared for recognition');
       return { text: '', confidence: 0, words: [], engine: 'none' };
     }
 
@@ -247,7 +257,7 @@ async function tesseractFallback(source: File | Blob | string): Promise<Transcri
       engine: 'tesseract'
     };
   } catch (e) {
-    console.warn('⚠️ Tesseract OCR failed:', e);
+    console.warn('Tesseract OCR failed:', e);
     return { text: '', confidence: 0, words: [], engine: 'none' };
   } finally {
     if (worker) {

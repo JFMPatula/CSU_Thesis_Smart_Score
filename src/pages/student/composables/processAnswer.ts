@@ -75,7 +75,8 @@ export function useAnswerProcessor() {
   const processAnswerSheet = async (
     file: File | Blob,
     answerKeyData?: any,
-    useStreaming = false
+    useStreaming = false,
+    accessCode?: string
   ): Promise<ProcessedAnswerResult> => {
     const startTime = Date.now()
 
@@ -114,6 +115,7 @@ export function useAnswerProcessor() {
           imageBase64,
           extractionPrompt,
           Number(answerKeyData?.id) || undefined,
+          accessCode?.trim() || undefined,
         )
 
         // Log the extracted answers result
@@ -384,3 +386,4 @@ Use this to understand the expected number of questions and answer format, but e
     initializeServices
   }
 }
+ 

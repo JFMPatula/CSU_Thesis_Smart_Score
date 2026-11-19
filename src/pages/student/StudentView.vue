@@ -141,6 +141,7 @@ const handleImageSubmit = async (image: File | Blob) => {
       image,
       answerKeyData,
       false, // Set to true if you want streaming
+      accessCode.value.trim() || undefined,
     );
 
     processingResults.value = result;
@@ -173,8 +174,11 @@ const handleAnswersSubmit = async (finalAnswers: any) => {
     // Upload image to storage first
     let imageUrl = null;
     try {
-      imageUrl = await uploadImageToStorage(submittedImage.value);
-      console.log("✅ Image uploaded successfully");
+      imageUrl = await uploadImageToStorage(submittedImage.value, "student-answers", "answers", {
+        quizId: parseInt(quizId.value),
+        accessCode: accessCode.value.trim() || undefined,
+      });
+      console.log("Image uploaded successfully");
     } catch (uploadError) {
       console.warn("Image upload failed:", uploadError);
     }

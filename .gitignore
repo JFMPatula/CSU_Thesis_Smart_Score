@@ -21,7 +21,6 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
-.github
 githubSwitcher
 
 # temp Groq test scripts
